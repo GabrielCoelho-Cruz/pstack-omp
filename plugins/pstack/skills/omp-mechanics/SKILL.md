@@ -57,9 +57,12 @@ the item shape, the per-agent lever table, the isolation lifecycle, and the budg
   order, which is a different thing from the zero-argument `wait` tool. A pool's name is its
   aggregate job id, and there is no `pool.wait()`. Leave eval, let results auto-deliver, and call the
   `wait` tool only when blocked.
-- **`effort` is gated.** The per-spawn `effort` field is `"lo"`, `"med"`, or `"hi"`, it reaches the
-  schema only while `task.enableEffort` is true, which is off by default, and `task.maxEffort` caps
-  it. Check `omp config list | grep task.enableEffort` before a brief depends on it.
+- **Leave `effort` unset.** The per-spawn `effort` field (`"lo"`, `"med"`, `"hi"`) reaches the
+  schema only while `task.enableEffort` is true, and it overrides the route's configured thinking:
+  OMP maps it to the model's own range, so `hi` is the model's top level (`max` on current Claude
+  models). Routes carry their thinking in the `task.agentModelOverrides` selector suffix instead.
+  Set `effort` only on the user's request or once after a route's level demonstrably failed, and
+  report the resolved level. `task.maxEffort` caps it when enabled.
 - **`isolated: true` is opt-in and gated.** It gives the worker its own worktree, and it reaches the
   tool only while `task.isolation.enabled` is true **and** plan mode is disabled, so check both
   (`omp config list | grep task.isolation`). Without the flag a worker shares the parent checkout,

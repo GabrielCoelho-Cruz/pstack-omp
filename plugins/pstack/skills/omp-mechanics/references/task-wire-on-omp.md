@@ -40,8 +40,10 @@ Subagents share the parent's `local://` root, so that path resolves for them.
 ```
 
 `effort` is `"lo" | "med" | "hi"`. It is present in the schema only while `task.enableEffort` is
-true, which defaults to false, and it is clamped by `task.maxEffort`, which defaults to `max`. Check
-`omp config list | grep task.enableEffort` before writing a brief that depends on it.
+true, which defaults to false, and it is clamped by `task.maxEffort`, which defaults to `max`. It
+maps to the resolved model's own range, so `hi` is that model's top level. pstack leaves it unset:
+each route's thinking comes from its `task.agentModelOverrides` selector suffix (see the main
+mechanics skill).
 
 `tools` names kernel tools the parent defined in an `eval` cell with `@tool` in Python or
 `tool(fn, …)` in JavaScript. It is gated by `eval.tools.enabled`, which defaults to true. Each call

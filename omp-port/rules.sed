@@ -85,8 +85,8 @@ s#Reaching for `drive` inside a phase agent stops that agent finishing its turn\
 # Cursor's Task `model` argument -> omp has no per-call field, only the keyed override map.
 s#\(omit Task `model`\)#(remove that agent's key from `task.agentModelOverrides`)#g
 s#For a model race, name each arm's model up front\.#For a model race, run the arms on distinct `pstack_panel_<n>` agents, each with its own configured selector.#
-# Cursor matches reasoning level and fast or standard speed per spawn; omp has only the gated per-item `effort` field and no speed lever.
-s#Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section( of the \*\*poteto-mode\*\* skill)?\.#Pick each subagent's reasoning `effort` for the job when the live `task` schema exposes it, per the Subagents section\1.#g
+# Cursor matches reasoning level and speed per spawn; on omp each route's configured thinking decides, and agents leave `effort` unset.
+s#Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section( of the \*\*poteto-mode\*\* skill)?\.#Leave each subagent's thinking to its route, per the Subagents section\1.#g
 # Cursor writes an always-applied rule file; omp writes only the owned task.agentModelOverrides keys.
 s#Tell the user the rule was written and that it applies to new sessions\.#Tell the user which entries were written and that they apply to new sessions.#
 s#Per-role lines in the `/setup-pstack` rule override#Per-role entries written by `/setup-pstack` override#g

@@ -17,7 +17,7 @@ omp writes one layout: a flat `<timestamp>_<session-id>.jsonl` per session in th
 
 ## 2. Spawn three reviewers in parallel
 
-Spawn the three reviewers together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts, each on its own exact agent below. Setup's model choices reach each spawn through that agent, as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Every spawn keeps the runtime's normal tools, because reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references. Read-only posture is stated in each brief and is not a sandbox. Each brief tells the reviewer to start no subagents and to finish through `yield` with its findings. Every task item carries a `solutionSpace`. Pick each subagent's reasoning `effort` for the job when the live `task` schema exposes it, per the Subagents section of the **poteto-mode** skill.
+Spawn the three reviewers together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts, each on its own exact agent below. Setup's model choices reach each spawn through that agent, as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Every spawn keeps the runtime's normal tools, because reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references. Read-only posture is stated in each brief and is not a sandbox. Each brief tells the reviewer to start no subagents and to finish through `yield` with its findings. Every task item carries a `solutionSpace`. Leave each subagent's thinking to its route, per the Subagents section of the **poteto-mode** skill.
 
 | Lens | `agent` | Prompt template |
 |---|---|---|

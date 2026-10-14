@@ -54,6 +54,12 @@ A value is **one selector, never a list**, built from `omp models --json`:
 The budget is reported in setup's summary. There is no second persistent budget setting, and no
 prose `# budget` line is read to route a worker.
 
+Thinking is billed as output tokens, so cost scales with both the model's price and its level.
+When the operator asks for a cost-aware setup, keep premium-priced models (those whose `cost.output`
+in `omp models --json` is at least twice the cheapest routed model's) at `medium`, and allow `high`
+on the mid- and low-priced models. Recommend `task.enableEffort: false` alongside, so no spawn can
+raise a route above its configured level.
+
 ```yaml
 task:
   agentModelOverrides:

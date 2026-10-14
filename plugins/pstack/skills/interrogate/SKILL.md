@@ -27,7 +27,7 @@ Launch all reviewers together with the Task tool, through `skill://pstack-omp`. 
 
 If discovery blocks a required agent name, report the unavailable configured route. Never fall back to the generic worker and claim the setup took effect. Do not block the review on it. Report each returned resolved model and fallback flag. A reviewer on a different model family from the writer brings different blind spots, and one sharing the writer's family shares them, so say from the returned identities which it was. Configuration alone cannot promise either.
 
-Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`. Pick each subagent's reasoning `effort` for the job when the live `task` schema exposes it, per the Subagents section of the **poteto-mode** skill.
+Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`. Leave each subagent's thinking to its route, per the Subagents section of the **poteto-mode** skill.
 
 ## Step 4, Synthesize
 

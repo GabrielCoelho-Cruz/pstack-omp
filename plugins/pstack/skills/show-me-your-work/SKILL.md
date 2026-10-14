@@ -63,7 +63,7 @@ Correct the log, not the story. The audit never edits or removes a row, even an 
 
 ## Cross-model review of the trail
 
-Before handing back, spawn an independent reviewer through `skill://pstack-omp` on `pstack_judgment`, and report the resolved model its result returns. Prefer a different model from the one that did the work, and say so when the returned identities show it was the same. Self-review is not a substitute. The reviewer reads the audit trail and the run's transcript, then flags what the user should pay attention to. Not a redo of the work, a scan for what's suboptimal or risky. Pick each subagent's reasoning `effort` for the job when the live `task` schema exposes it, per the Subagents section of the **poteto-mode** skill.
+Before handing back, spawn an independent reviewer through `skill://pstack-omp` on `pstack_judgment`, and report the resolved model its result returns. Prefer a different model from the one that did the work, and say so when the returned identities show it was the same. Self-review is not a substitute. The reviewer reads the audit trail and the run's transcript, then flags what the user should pay attention to. Not a redo of the work, a scan for what's suboptimal or risky. Leave each subagent's thinking to its route, per the Subagents section of the **poteto-mode** skill.
 
 - Decisions logged with weak or absent evidence.
 - Verification steps skipped or claimed without proof in the transcript.
