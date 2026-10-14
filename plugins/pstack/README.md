@@ -1,8 +1,8 @@
 # pstack for oh-my-pi
 
-The pstack methodology, ported to omp. It ships 55 skills, 23 playbooks, 24 principle leaves, the
+The pstack methodology, ported to omp. It ships 56 skills, 23 playbooks, 24 principle leaves, the
 `poteto-mode` pin, and 8 installed agents: six model-routing agents plus `poteto-agent` and
-`comment-sicko`. 53 skills are built from upstream; `omp-mechanics` and `pstack-omp` are port
+`comment-sicko`. 54 skills are built from upstream; `omp-mechanics` and `pstack-omp` are port
 adapters. Licenses and third-party notices ship in `LICENSE` and `THIRD_PARTY_NOTICES.md` in this
 directory.
 

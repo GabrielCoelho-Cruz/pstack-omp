@@ -336,8 +336,8 @@ cmd_sync() {
 	# it, so an uncommitted owned file is not a reason to refuse. An edit to anything else is.
 	owned=$(owned_paths)
 	dirty=$(git status --porcelain -- "$PLUGIN" | sed 's/^...//' |
-		awk -v owned="$owned" -v root="$PLUGIN/" '
-			BEGIN { n = split(owned, o, "\n") }
+		owned="$owned" awk -v root="$PLUGIN/" '
+			BEGIN { n = split(ENVIRON["owned"], o, "\n") }
 			{
 				skip = ($0 == root "package.json")
 				for (i = 1; i <= n; i++)

@@ -3,7 +3,7 @@
 An omp marketplace carrying two plugins.
 
 `pstack` is the pstack engineering methodology for Cursor, ported to oh-my-pi and made model and
-provider agnostic: 55 skills with 23 playbooks and 24 principle leaves, a `poteto-mode` pin, and 8
+provider agnostic: 56 skills with 23 playbooks and 24 principle leaves, a `poteto-mode` pin, and 8
 agents. Six of the agents are model-free routing slots that `/skill:setup-pstack` binds to concrete
 models, the other two are `poteto-agent` and `comment-sicko`. `fan-out` is a small omp-native skill
 for wide parallel runs. Its measurements are kept as historical observations, not as reliability

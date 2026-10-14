@@ -85,6 +85,8 @@ s#Reaching for `drive` inside a phase agent stops that agent finishing its turn\
 # Cursor's Task `model` argument -> omp has no per-call field, only the keyed override map.
 s#\(omit Task `model`\)#(remove that agent's key from `task.agentModelOverrides`)#g
 s#For a model race, name each arm's model up front\.#For a model race, run the arms on distinct `pstack_panel_<n>` agents, each with its own configured selector.#
+# Cursor matches reasoning level and fast or standard speed per spawn; omp has only the gated per-item `effort` field and no speed lever.
+s#Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section( of the \*\*poteto-mode\*\* skill)?\.#Pick each subagent's reasoning `effort` for the job when the live `task` schema exposes it, per the Subagents section\1.#g
 # Cursor writes an always-applied rule file; omp writes only the owned task.agentModelOverrides keys.
 s#Tell the user the rule was written and that it applies to new sessions\.#Tell the user which entries were written and that they apply to new sessions.#
 s#Per-role lines in the `/setup-pstack` rule override#Per-role entries written by `/setup-pstack` override#g
@@ -108,6 +110,7 @@ s#the full Task schema including `environment`#the full Task schema including `i
 s#When a worker must start from a non-default pushed branch, pass `cloud_base_branch`\.#When a worker must start from a non-default base, create its `git worktree` on that base first and point the worker at that path.#
 s#One Cursor cloud agent#One isolated subagent (a private worktree, per `skill://pstack-omp`)#g
 s#each a Cursor cloud agent#an isolated subagent (a private worktree, per `skill://pstack-omp`)#g
+s#Each owner is a Cursor cloud agent#Each owner is an isolated subagent (a private worktree, per `skill://pstack-omp`)#g
 s#Cloud agents cannot read the local store, so their briefs inline what they need or point at repo paths\.#An isolated worker runs on this machine in its own worktree with no conversation history, so its brief inlines what it needs or points at absolute paths.#
 # Cursor's cloud dashboard -> omp's `history://` and `proc://` reads.
 s#the cloud agent's status in the Cursor dashboard#agent state from `read history://` (registered agents) and `read proc://` (visible jobs and running agents)#
@@ -121,7 +124,7 @@ s#cloud-agent URL#prior agent's `history://<id>` or `agent://<id>`#g
 # Cursor's local-versus-cloud split -> shared parent checkout versus a private worktree.
 s#cloud spawns#isolated spawns#g
 s#its spawn budget with the cloud default and the local exception list#its spawn budget with the isolated default and the shared-checkout exception list#
-s#Restacks run in cloud\. A local restack at this scale takes the laptop down\.#Restacks run in an isolated subagent with its own worktree, never in the parent checkout.#
+s#Chain rebases run in cloud\. A local rebase at this scale takes the laptop down\.#Chain rebases run in an isolated subagent with its own worktree, never in the parent checkout.#
 s#After a Cursor restart: local agents are dead, cloud work is not\.#After an omp restart, a resumed session rebuilds its subagents as parked rows that a `write` to `agent://<returned-id>` can revive. Isolated children cannot be cold-revived after a host restart, so reconcile their durable branch, PR, and `history://<id>` transcript and dispatch replacement work.#
 s#reattach cloud work by PR and branch rather than agent id#reattach pushed work by PR and branch rather than agent id#
 s#a Cursor restart#an omp restart#g
@@ -137,6 +140,7 @@ s#A cloud root uses the existing cloud-sleeper wake chain instead\.#A wake that 
 s#In a local session, a real terminal `/loop`\. In a cloud root, a cloud-sleeper wake chain\.#In session, omp's `/loop`, with its grammar and cadence read from its live help. A wake that must land out of session needs an authenticated external trigger such as launchd on macOS, or a systemd user timer or cron on Linux.#
 s#Run `drive` and `background` under `/loop` in dynamic mode\.#Run `drive` and `background` under omp's `/loop` when its live help shows it fits the cadence you need, or hold them in a named `bash` service that observes only while the session exists. A wake that must land out of session needs an authenticated external trigger calling an explicit CLI or RPC entry point.#
 s#Hold the watch under `/loop` in dynamic mode\.#Hold the watch under omp's `/loop` when its live help shows it fits the cadence you need, or in a named `bash` service that observes only while the session exists. A wake that must land out of session needs an authenticated external trigger calling an explicit CLI or RPC entry point.#
+s#under `/loop` until it reports `COMPLETE` at the ceiling\.#under omp's `/loop` when its live help shows it fits the cadence you need, or in a named `bash` service that observes only while the session exists, until it reports `COMPLETE` at the ceiling. A wake that must land out of session needs an authenticated external trigger: launchd on macOS, or an available systemd user timer or cron on Linux, calling an explicit CLI or RPC entry point (`prompt`, `steer`, `follow_up`) or an extension.#
 s#`/loop` per component until the diff is zero\.#Hold a named `bash` service per component until the diff is zero, or re-check under omp's `/loop`.#
 s#a frontier watcher wake \(arm it via the loop skill, with a long heartbeat fallback\)#a frontier watcher wake (a named `bash` service while the session exists, with a long fallback heartbeat)#
 s#"/loop until X"#"run until X"#g
@@ -213,6 +217,8 @@ s#~/\.cursor/#~/.omp/#g
 
 s#re-read this playbook from trunk with `git show origin/main:pstack/skills/#re-read this playbook with `skill://#g
 s#Re-read the execution playbook from trunk( and the armed /goal)?#Re-read the execution playbook through its `skill://poteto-mode/playbooks/` URI\1#g
+s#Each tick re-reads this playbook from trunk#Each tick re-reads this playbook through its `skill://poteto-mode/playbooks/` URI#g
+s#re-reads both playbooks from trunk#re-reads both playbooks through their `skill://poteto-mode/playbooks/` URIs#g
 s#`git show origin/main:<control skill path>`#the omp doc for the control surface, such as `omp://tools/browser.md`, remembering that `browser` and `computer` are eval preludes rather than tools#
 s#`git show origin/main:pstack/skills/#`skill://#g
 s#`node pstack/skills/poteto-mode/scripts/check-plan\.mjs <plan\.md>`#`node <poteto-mode-dir>/scripts/check-plan.mjs <plan.md>`, after resolving `<poteto-mode-dir>` with `realpath skill://poteto-mode` as its own command#
@@ -227,8 +233,8 @@ s#^paths: \[#globs: [#
 ## The left boundary refuses a letter, `/`, `.`, `:`, `~`, `$`, or `-` before the slash, so a URL, a path, or a `skill://` URI is not a command.
 ## The rule runs twice because each match consumes its right boundary, so two commands one space apart need a second pass.
 
-s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
-s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
+s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|sharpen|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
+s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|sharpen|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
 
 ## Dynamic skill names the shipped list cannot name. A personal mode is authored as `<handle>-mode` and a generated verification skill as `verify-<app>`.
 ## omp registers both as `/skill:<name>`, and the personal-mode procedure registers no extension command of its own. The boundaries match the rule above.
