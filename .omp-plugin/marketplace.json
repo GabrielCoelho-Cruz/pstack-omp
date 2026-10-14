@@ -1,0 +1,28 @@
+{
+  "name": "pstack-omp",
+  "owner": {
+    "name": "Gabriel Coelho Cruz",
+    "url": "https://github.com/GabrielCoelho-Cruz"
+  },
+  "metadata": {
+    "description": "pstack, poteto's engineering methodology for Cursor, ported to oh-my-pi. Model and provider agnostic.",
+    "version": "0.15.23"
+  },
+  "plugins": [
+    {
+      "name": "pstack",
+      "description": "55 skills, 23 playbooks, 24 principles, the poteto-mode pin, and two agents. Upstream cursor/plugins pstack at c86f349.",
+      "version": "0.15.23",
+      "category": "development",
+      "license": "MIT",
+      "source": "./plugins/pstack"
+    },
+    {
+      "name": "fan-out",
+      "description": "Run many subagents in parallel on one machine. Concurrency ceiling, isolation, aggregation, and the model-reliability floor, all measured.",
+      "category": "development",
+      "license": "MIT",
+      "source": "./plugins/fan-out"
+    }
+  ]
+}
