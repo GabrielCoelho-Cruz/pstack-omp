@@ -46,7 +46,7 @@ CONTEXT      pointers to files and PRs; upstream reports pasted in full when thi
 ACCEPTANCE   checkable criteria, one per line
 VERIFY       exact commands or the control-skill path, plus known gotchas
 TIMEBOX      rough cap on runtime; on expiry, return partial findings and stop rather than run on
-FORBIDDEN    no PR retargets or merges unless ROLE is the designated stacker; no rebase or force-push unless the
+FORBIDDEN    no PR merges; no PR retargets unless ROLE is the designated stacker; no rebase or force-push unless the
              stacker brief grants the exact operation; no fixes outside scope; unit-specific bans
 REPORT       status, branch, head SHA, PRs, verdict, what you actually ran, deviations,
              suggested follow-ups
@@ -81,9 +81,9 @@ A dependency is a context relay, not just ordering: undeclared upstream context 
 #### Stack safety
 
 - The frontier is a computed object, never narrative. Recompute `frontier.json` after every merge and stack mutation: ordered PR list, branch names, head SHAs, a generation number, the lowest unmerged PR. The command walks the PR base chain through the checkout's current branch, so chain order and PR states come from the forge. It uses `gh` by default. Pass `--forge origin` when the program resolved the forge to Origin. Head SHAs come from local branch refs, so resolve it from the stacker's clone; a branch with no PR errors rather than guessing.
-- Exactly one stacker per stack may mutate topology (chain rebases, force-pushes, base retargets, merges), serialized within its stack; record the holder in the standing orders. Chain rebases run in an isolated owner workspace; avoid running a large chain rebase on an interactive workstation.
+- Exactly one stacker per stack may mutate topology (chain rebases, force-pushes, base retargets), serialized within its stack; it prepares merge units and the root executes every PR merge; record the holder in the standing orders. Chain rebases run in an isolated owner workspace; avoid running a large chain rebase on an interactive workstation.
 - Workers never rebase and never retarget or merge PRs. Babysitters follow `skill://poteto-mode/playbooks/babysit.md`, one per stack, scoped to one immutable frontier generation; they report conflicts to the stacker rather than rebasing.
-- PR closes and retargets go through the stacker only; closing a base PR orphans every chain above it. Merges and stack surgery are units with briefs like any other.
+- PR closes and retargets go through the stacker only; closing a base PR orphans every chain above it. Stack surgery is a unit with a brief like any other; the root executes every PR merge.
 - One retro watcher follows merged PRs for reverts, post-merge CI breaks, and orphaned follow-ups.
 
 #### Verification
