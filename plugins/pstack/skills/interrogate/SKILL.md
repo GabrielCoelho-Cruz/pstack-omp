@@ -5,7 +5,7 @@ description: "Use for \"interrogate\", \"adversarial review\", \"multi-model rev
 
 # Interrogate
 
-Spawn one reviewer per configured model to adversarially review code changes. The adversarial signal comes from model diversity, not assigned personas. The deliverable is a synthesized verdict. Do NOT auto-apply changes.
+Spawn one reviewer per selected panel slot to adversarially review code changes. The adversarial signal comes from independent reviewers on distinct slots, not assigned personas. The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 
 ## Step 1, Scope
 
@@ -23,16 +23,9 @@ Before spawning reviewers, state the intent in one clear paragraph from the user
 
 ## Step 3, Spawn Reviewers
 
-Launch all reviewers in a single message with the Task tool, one per entry on the `interrogate reviewers` line in `task.agentModelOverrides` in `~/.omp/agent/config.yml`, labeled Reviewer A, B, and so on to match the entry count. If that line is missing, use the table defaults. Give each reviewer a different model family from the other reviewers and from the parent that wrote the code, resolved at run time from what `omp models` reports. A reviewer sharing the writer's family shares the writer's blind spots, which is the one thing this skill exists to defeat. `skill://omp-mechanics` covers the single-family case.
+Launch all reviewers together with the Task tool, through `skill://pstack-omp`. Reviewers are the numbered agents `pstack_panel_<n>`, configured as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Read `task.agentModelOverrides` from the effective session settings and take the configured slots in numeric order, appending the lowest-numbered missing slots until there are two. Use one reviewer per selected slot, labeled Reviewer A, B, and so on to match the run count. An explicit larger N repeats the slots round-robin. Every task item sets `agent` to its slot, a unique `name`, and a `solutionSpace`. The brief for each reviewer grants read-only posture.
 
-| Subagent | Default model |
-|----------|---------------|
-| Reviewer A | your strongest judgment model |
-| Reviewer B | your fast code model |
-
-Each reviewer gets `agent`: `task` (omp's general-purpose bundled agent), `read-only posture, granted in the brief`, and `model` set to its configured entry, or its table default when there is no configured line. Omit `model` for an `auto` or `inherit-parent` entry, so that reviewer runs on the parent model.
-
-If the Task tool rejects a configured entry, run that reviewer on its family's table default and say so. Families go by prefix: `claude-*` and `grok-*`. With no family match, use Reviewer A's default. If it rejects a table default, spawn with the closest equivalent from the valid slugs in its error message (prefer the same family and reasoning tier), and open a separate PR to update the default table. Do not block the review on the slug issue. Never treat an alias entry as a rejected slug or apply either fallback to it.
+If discovery blocks a required agent name, report the unavailable configured route. Never fall back to the generic worker and claim the setup took effect. Do not block the review on it. Report each returned resolved model and fallback flag. A reviewer on a different model family from the writer brings different blind spots, and one sharing the writer's family shares them, so say from the returned identities which it was. Configuration alone cannot promise either.
 
 Read `references/reviewer-prompt.md` and fill in the same template for every reviewer with the stated intent, the diff or file contents, the rubric from `references/rubric.md`, and the code-quality lens from `references/code-quality-review.md`.
 

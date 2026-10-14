@@ -7,9 +7,9 @@ description: "Use for 'why does X work this way', 'why we picked Y', design rati
 
 Investigate the motivation and intent behind code. The companion `how` skill answers what the code does and how it works. `why` answers what forces led to its shape.
 
-Each spawn below names a role line in `task.agentModelOverrides` in `~/.omp/agent/config.yml` and a default. Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message.
+Dispatch through `skill://pstack-omp`. Setup's model choices reach each spawn through the exact agent named in its task item's `agent` field, as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Investigators run on `pstack_fast` and the synthesizer runs on `pstack_judgment`. If discovery blocks an agent name, report the unavailable configured route. Never fall back to the generic worker and claim setup took effect.
 
-Every spawn is `task` (omp's general-purpose bundled agent) with full tools per spawn. There is no `readonly` field and no Ask mode on omp's task wire, so nothing strips MCP access, which would otherwise disable the MCP-backed investigators and the synthesizer's citation spot-checks. Investigators still shouldn't write anything.
+Every spawn keeps the runtime's normal tools, so MCP access stays available. That is required: the MCP-backed investigators and the synthesizer's citation spot-checks depend on it. Read-only posture is stated in each brief and is not a sandbox. Investigators and the synthesizer write nothing, start no subagents, and finish through `yield` with findings and evidence. Every task item carries a `solutionSpace`.
 
 ## Operating Posture
 
@@ -31,7 +31,7 @@ Before spawning investigators, build the seed context inline: file paths and lin
 
 ### Discovery
 
-Before spawning investigators, list the available MCPs from the session environment. Use the available-tools map when present. Otherwise read `~/.omp/agent/mcp.json` for enabled MCP servers.
+Before spawning investigators, list the available MCPs from the live tool inventory first. Then follow the **MCP discovery** section of `skill://omp-mechanics` to find servers the inventory does not show, across project, profile, user, plugin, and imported sources per omp://mcp-config.md. The default user file is not the whole inventory.
 
 Map each available MCP to one evidence category:
 
@@ -45,7 +45,7 @@ Map each available MCP to one evidence category:
 
 Source control is always available through git and `gh`. For the other six, classify using the MCP name, server instructions, tool names, and resource descriptors. If an MCP could fit more than one category, choose the one matching its primary evidence. Record ambiguous cases in the coverage map.
 
-Spawn one investigator per category that has a matching MCP, all in a single message so they run concurrently, each owning exactly one tool or MCP. Don't ask one agent to cover multiple MCPs. `model`: the `why investigators` line, default your fast code model.
+Spawn one investigator per category that has a matching MCP, all together through `skill://pstack-omp` in the batch or flat shape the live `task` schema accepts, so they run concurrently. Each runs on `pstack_fast` and owns exactly one tool or MCP. Don't ask one agent to cover multiple MCPs.
 
 Each investigator's prompt is `references/investigator-prompt.md` filled in, plus:
 - the category playbook `references/sources/<source>.md` for the selected MCP, adapted from the examples in `references/source-playbook.md`
@@ -75,7 +75,7 @@ If your scope assessment suggests a single-commit trivial target where the PR de
 
 ## Step 4. Synthesize
 
-Spawn one synthesizer. `model`: the `why synthesizer` line, default your strongest judgment model. It gets:
+Spawn one synthesizer on `pstack_judgment`. It gets:
 1. The investigator findings, including any null results and any categories skipped with justification
 2. The code anchor
 3. The user's original question

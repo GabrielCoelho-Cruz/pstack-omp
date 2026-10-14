@@ -13,23 +13,49 @@
 #       target head sha is written to stderr as "target <full-sha>", and also to the file named
 #       by SYNC_TARGET_OUT when that variable is set, which is how CI captures it.
 #   bash omp-port/sync-upstream.sh [<target-sha>]
-#       Rebuilds plugins/pstack at <target-sha> and moves the pin to it. <target-sha> must be a
-#       full 40-hex sha that touched pstack/. Default is the newest such commit. Refuses to run
-#       when the built tree carries uncommitted changes, owned paths excepted.
+#       Moves the pin to <target-sha> and increments the port patch version once. <target-sha>
+#       must be a full 40-hex sha that touched pstack/. Default is the newest such commit. A target
+#       equal to the current pin is a no-op that changes nothing, version included. Refuses to run
+#       when the plugin tree carries uncommitted changes the build would destroy, owned paths
+#       excepted.
+#   bash omp-port/sync-upstream.sh release
+#       Rebuilds at the current pin and increments the port patch version once. This is the
+#       port-only release, for a change to rules.sed, patches/, owned.txt, or an owned path.
 #   bash omp-port/sync-upstream.sh rebuild
-#       Rebuilds at the current pin without moving it, which is what a maintainer runs after
-#       editing rules.sed, patches/, or owned.txt. Uncommitted build output is what it replaces,
-#       so unlike a sync it does not refuse a dirty tree.
+#       Rebuilds at the current pin and keeps the version. Uncommitted build output is what it
+#       replaces, so unlike a sync it does not refuse a dirty tree.
+#   bash omp-port/sync-upstream.sh recover
+#       Finishes or undoes an installation that a kill interrupted. Every mode that installs does
+#       this first, so the command exists to do it deliberately.
+#
+# The port version is its own stable counter, kept in plugins/pstack/package.json. It is a plain
+# MAJOR.MINOR.PATCH, written to the package, the catalog metadata, and both catalog plugin entries.
+# Upstream's version is printed for provenance and feeds nothing.
+#
+# An install is a transaction. The tree, the package manifest, the catalog, and the pin are built
+# and validated in scratch on the destination filesystem, the three live destinations are backed
+# up, and only then are they replaced. A failure or a trapped signal rolls the old installation
+# back, so a failed build leaves the plugin, catalog, pin, and index as they were. Replacing three
+# paths is not one atomic operation, so a kill that cannot be trapped leaves its backups and a
+# marker behind in the git directory, and the next invocation restores the previous installation
+# before it looks at anything else. Changes are staged in git only after the replacement committed.
 #
 # Exit 0 clean, 1 failure, including a patch that no longer applies.
 # Override the canonical checkout location with CANON=/path.
 set -euo pipefail
-. "$(dirname "$0")/lib.sh"
-cd "$(dirname "$0")/.."
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+. "$HERE/lib.sh"
+cd "$REPO_ROOT"
 
 PIN_FILE=omp-port/UPSTREAM
+PLUGIN=plugins/pstack
+CATALOG=.omp-plugin/marketplace.json
+SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+TXN=""
+TXN_OWNED=""
 
 die() { printf 'sync-upstream: %s\n' "$*" >&2; exit 1; }
+note() { printf 'sync-upstream: %s\n' "$*" >&2; }
 
 read_pin() {
 	[ -f "$PIN_FILE" ] ||
@@ -59,51 +85,207 @@ commits_since() {
 	[ -z "$out" ] || printf '%s\n' "$out"
 }
 
-write_json() {
-	local path="$1"
-	shift
-	local tmp
-	tmp=$(mktemp "$path.XXXXXX")
-	jq --indent 2 "$@" "$path" >"$tmp"
-	chmod --reference="$path" "$tmp"
-	mv "$tmp" "$path"
+# ---- the version ----------------------------------------------------------------------------
+
+valid_semver() { [[ ${1:-} =~ $SEMVER_RE ]]; }
+
+# 0.15.23 -> 0.15.24. Only a plain MAJOR.MINOR.PATCH with no leading zero is a version here.
+bump_patch() {
+	valid_semver "${1:-}" || return 1
+	printf '%s.%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "$((BASH_REMATCH[3] + 1))"
 }
 
-# Build at <sha>, install it, refresh the derived fields, and stage everything. The pin lands
-# last and only when <move-pin> is yes, so an interrupted run reruns cleanly instead of latching.
+# The version an install of <mode> writes, given the one on disk. rebuild reproduces and keeps it,
+# release and a sync to a new pin advance the patch once.
+derive_version() {
+	local mode="$1" cur="$2"
+	valid_semver "$cur" || return 1
+	case "$mode" in
+	rebuild) printf '%s\n' "$cur" ;;
+	release | sync) bump_patch "$cur" ;;
+	*) return 1 ;;
+	esac
+}
+
+current_version() {
+	local v
+	[ -f "$PLUGIN/package.json" ] || die "no $PLUGIN/package.json, the port version counter lives there"
+	v=$(jq -er '.version' "$PLUGIN/package.json") || die "$PLUGIN/package.json has no readable version"
+	valid_semver "$v" ||
+		die "$PLUGIN/package.json version '$v' is not a plain MAJOR.MINOR.PATCH without leading zeros"
+	printf '%s\n' "$v"
+}
+
+# The catalog carries the counter in three places. They have to agree with the package before
+# anything advances, or a half-applied release would be advanced over. fan-out's entry may still
+# lack a version, which the first release initialises.
+check_catalog_versions() {
+	local cur="$1" meta pst fan
+	[ -f "$CATALOG" ] || die "no catalog at $CATALOG"
+	jq -e '(.plugins | map(.name)) as $n | ($n | index("pstack")) != null and ($n | index("fan-out")) != null' \
+		"$CATALOG" >/dev/null || die "$CATALOG must list both the pstack and the fan-out plugin"
+	meta=$(jq -r '.metadata.version // "missing"' "$CATALOG") || die "$CATALOG is not readable JSON"
+	pst=$(jq -r '.plugins[] | select(.name == "pstack") | .version // "missing"' "$CATALOG") || die "$CATALOG is not readable JSON"
+	fan=$(jq -r '.plugins[] | select(.name == "fan-out") | .version // "missing"' "$CATALOG") || die "$CATALOG is not readable JSON"
+	[ "$meta" = "$cur" ] || die "$CATALOG metadata.version is $meta, the package says $cur, reconcile them first"
+	[ "$pst" = "$cur" ] || die "$CATALOG pstack version is $pst, the package says $cur, reconcile them first"
+	{ [ "$fan" = "$cur" ] || [ "$fan" = missing ]; } ||
+		die "$CATALOG fan-out version is $fan, the package says $cur, reconcile them first"
+}
+
+# ---- the installation transaction -----------------------------------------------------------
+
+# Put the old installation back. The state is read off what exists, so this is safe to run again
+# after it was itself interrupted. bak.plugin means the live plugin directory, if there is one, is
+# the new one. bak.done means the catalog and pin copies are complete and the live ones may be the
+# new ones. committed means all three were replaced, so the backups are only garbage.
+rollback_txn() {
+	[ -d "$TXN" ] || return 0
+	if [ ! -e "$TXN/committed" ]; then
+		if [ -e "$TXN/bak.plugin" ]; then
+			rm -rf "$PLUGIN" && mv "$TXN/bak.plugin" "$PLUGIN" || return 1
+		fi
+		if [ -e "$TXN/bak.done" ]; then
+			cp -p "$TXN/bak.catalog" "$TXN/restore.catalog" && mv -f "$TXN/restore.catalog" "$CATALOG" || return 1
+			cp -p "$TXN/bak.pin" "$TXN/restore.pin" && mv -f "$TXN/restore.pin" "$PIN_FILE" || return 1
+		fi
+	fi
+	rm -rf "$TXN"
+}
+
+stage_changes() { git add -A -- "$PLUGIN" "$CATALOG" "$PIN_FILE"; }
+
+on_exit() {
+	local rc=$?
+	trap - EXIT
+	if [ -n "$TXN_OWNED" ]; then
+		if ! rollback_txn; then
+			note "rollback did not finish, the transaction is kept at $TXN, run: bash omp-port/sync-upstream.sh recover"
+			rc=1
+		fi
+	fi
+	exit "$rc"
+}
+
+# Look for a transaction a kill interrupted and settle it before anything else reads the tree.
+recover_txn() {
+	TXN=$(git rev-parse --absolute-git-dir)/pstack-port-txn
+	if [ ! -d "$TXN" ]; then
+		[ "${1:-}" != explicit ] || note "no interrupted installation to recover"
+		return 0
+	fi
+	if [ -e "$TXN/committed" ]; then
+		note "a previous run finished replacing the installation, discarding its backups and staging the result"
+		rollback_txn || die "could not discard the finished transaction at $TXN"
+		stage_changes || die "could not stage the finished installation"
+	else
+		note "a previous run was interrupted, restoring the previous installation"
+		rollback_txn || die "could not restore the previous installation from $TXN, fix the cause and run recover again"
+	fi
+}
+
+same_fs() {
+	local a b
+	a=$(stat -c %d "$1") && b=$(stat -c %d "$2") && [ "$a" = "$b" ]
+}
+
+# Everything under the plugin directory is either generated, owned, or the manifest, because the
+# whole directory is replaced. Anything else would be deleted without a trace.
+check_plugin_layout() {
+	local e name p known
+	known=" skills agents package.json .DS_Store "
+	while IFS= read -r p; do
+		known="$known${p%%/*} "
+	done < <(owned_paths)
+	for e in "$PLUGIN"/* "$PLUGIN"/.[!.]*; do
+		[ -e "$e" ] || continue
+		name=$(basename "$e")
+		case "$known" in *" $name "*) ;; *) die "$e is neither generated nor owned, move it or list it in omp-port/owned.txt before installing" ;; esac
+	done
+}
+
+# Build <sha> into a complete, validated candidate installation and swap it in. <next> is the
+# port version to write. The pin file takes <sha> only when <move-pin> is yes.
 do_build() {
-	local sha="$1" pin="$2" move="$3" version work n p k
+	local sha="$1" pin="$2" next="$3" move="$4" cur work n p k a up desc untiered newpin changed
+	cur=$(current_version)
+	check_catalog_versions "$cur"
 	ensure_canon "$sha" || die "no canonical checkout at $CANON and cloning $UPSTREAM_URL failed"
-	# Read before the worktree changes, so a lazy blob fetch that fails cannot strand a
-	# rebuilt tree next to an unwritten version.
-	version=$(git -C "$CANON" show "$sha:pstack/.cursor-plugin/plugin.json" | jq -r .version)
-	work=$(mktemp -d)
-	build_tree "$sha" "$work" || {
-		rm -rf "$work"
-		die "build at ${sha:0:7} failed, see the output above"
-	}
-	install_tree "$work" || die "installing the built tree failed"
-	rm -rf "$work"
+	check_plugin_layout
+	TXN=$(git rev-parse --absolute-git-dir)/pstack-port-txn
+	same_fs "$(dirname "$TXN")" "$PLUGIN" && same_fs "$PLUGIN" "$(dirname "$CATALOG")" && same_fs "$PLUGIN" "$(dirname "$PIN_FILE")" ||
+		die "the git directory, the plugin, the catalog, and the pin are not on one filesystem, the replacement could not be a rename"
 
-	read -r n p k < <(port_counts plugins/pstack)
-	write_json plugins/pstack/package.json --arg v "$version" '.version = $v'
-	write_json .omp-plugin/marketplace.json --arg v "$version" \
-		--arg d "$n skills, $p playbooks, $k principles, the poteto-mode pin, and two agents. Upstream cursor/plugins pstack at ${sha:0:7}." \
-		'.metadata.version = $v
-		 | (.plugins[] | select(.name == "pstack")) |= (.version = $v | .description = $d)'
-	[ "$move" != yes ] || printf '%s\n' "$sha" >"$PIN_FILE"
-	git add -A plugins/pstack "$PIN_FILE" plugins/pstack/package.json .omp-plugin/marketplace.json
+	trap on_exit EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+	trap 'exit 129' HUP
+	mkdir "$TXN" || die "a transaction is already in progress at $TXN, run: bash omp-port/sync-upstream.sh recover"
+	TXN_OWNED=1
+	work="$TXN/new"
+	mkdir "$work" || die "cannot create $work"
 
-	printf '\npin      %s -> %s\nversion  %s\ncounts   %s skills, %s playbooks, %s principles\nchanged  %s files under plugins/pstack\n' \
-		"${pin:0:7}" "$(cut -c1-7 "$PIN_FILE")" "$version" "$n" "$p" "$k" \
-		"$(git status --porcelain -- plugins/pstack | wc -l)"
+	build_tree "$sha" "$work" || die "build at ${sha:0:7} failed, see the output above"
+	prepare_tree "$work" || die "preparing the owned paths failed, the installation is unchanged"
+	[ -d "$work/skills" ] && [ -d "$work/agents" ] || die "the build produced no skills or agents directory"
+
+	# The manifest is carried across and only its version moves.
+	jq --indent 2 --arg v "$next" '.version = $v' "$PLUGIN/package.json" >"$work/package.json" ||
+		die "writing the package manifest failed, the installation is unchanged"
+	chmod --reference="$PLUGIN/package.json" "$work/package.json"
+	jq -e --arg v "$next" '.version == $v and ((.omp.extensions // []) | length) > 0' "$work/package.json" >/dev/null ||
+		die "the prepared package manifest lost its version or its extension declaration"
+	while IFS= read -r p; do
+		[ -f "$work/$p" ] || die "the prepared package declares $p, which the prepared tree lacks"
+	done < <(jq -r '.omp.extensions[]' "$work/package.json" | sed 's|^\./||')
+
+	read -r n p k < <(port_counts "$work")
+	[ -n "${k:-}" ] || die "counting the prepared tree failed, the installation is unchanged"
+	a=$(find "$work/agents" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')
+	desc="$n skills, $p playbooks, $k principles, the poteto-mode pin, and $a agents. Upstream cursor/plugins pstack at ${sha:0:7}."
+	jq --indent 2 --arg v "$next" --arg d "$desc" '
+		.metadata.version = $v
+		| (.plugins[] | select(.name == "pstack")) |= (.version = $v | .description = $d)
+		| (.plugins[] | select(.name == "fan-out")) |= (.version = $v)' \
+		"$CATALOG" >"$TXN/new.catalog" || die "writing the catalog failed, the installation is unchanged"
+	chmod --reference="$CATALOG" "$TXN/new.catalog"
+	jq -e --arg v "$next" '.metadata.version == $v and ([.plugins[].version] | all(. == $v))' "$TXN/new.catalog" >/dev/null ||
+		die "the prepared catalog does not carry $next in every place"
+
+	newpin="$pin"
+	[ "$move" != yes ] || newpin="$sha"
+	printf '%s\n' "$newpin" >"$TXN/new.pin"
+	chmod --reference="$PIN_FILE" "$TXN/new.pin"
+	[[ $(tr -d '[:space:]' <"$TXN/new.pin") =~ ^[0-9a-f]{40}$ ]] || die "the prepared pin is not a full sha"
+
+	up=$(git -C "$CANON" show "$sha:pstack/.cursor-plugin/plugin.json" 2>/dev/null | jq -r '.version // "unknown"' 2>/dev/null) || up=unknown
 	# A slug the tiered rules never named still comes out model-agnostic, but it is worth a
 	# tiered rule that names the right capability instead of the generic replacement.
-	untiered_slugs "$sha" | sed 's/^/untiered /'
+	untiered=$(untiered_slugs "$sha") || die "the catch-all rebuild at ${sha:0:7} failed"
+
+	# Backups first, markers second, and the markers are what recovery trusts.
+	cp -p "$CATALOG" "$TXN/bak.catalog" && cp -p "$PIN_FILE" "$TXN/bak.pin" || die "backing up the catalog and pin failed"
+	: >"$TXN/bak.done"
+	mv "$PLUGIN" "$TXN/bak.plugin" || die "replacing $PLUGIN failed, the previous installation was restored"
+	mv "$work" "$PLUGIN" || die "replacing $PLUGIN failed, the previous installation was restored"
+	mv -f "$TXN/new.catalog" "$CATALOG" || die "replacing the catalog failed, the previous installation was restored"
+	mv -f "$TXN/new.pin" "$PIN_FILE" || die "replacing the pin failed, the previous installation was restored"
+	: >"$TXN/committed"
+
+	stage_changes || die "the installation is complete but staging it failed, run: bash omp-port/sync-upstream.sh recover"
+	rm -rf "$TXN" || die "the installation is complete but removing $TXN failed"
+	TXN_OWNED=""
+
+	changed=$(git status --porcelain -- "$PLUGIN" | wc -l | tr -d ' ')
+	printf '\npin      %s -> %s\nversion  %s -> %s (upstream %s)\ncounts   %s skills, %s playbooks, %s principles, %s agents\nchanged  %s files under %s\n' \
+		"${pin:0:7}" "${newpin:0:7}" "$cur" "$next" "$up" "$n" "$p" "$k" "$a" "$changed" "$PLUGIN"
+	[ -z "$untiered" ] || printf '%s\n' "$untiered" | sed 's/^/untiered /'
 }
 
+# ---- the commands ---------------------------------------------------------------------------
+
 cmd_sync() {
-	local target="${1:-}" pin touched dirty p
+	local target="${1:-}" pin touched dirty owned cur next
 	pin=$(read_pin)
 	[ -n "$target" ] || target=$(upstream_head)
 	[[ $target =~ ^[0-9a-f]{40}$ ]] || die "target must be a full 40-hex sha, got '$target'"
@@ -114,34 +296,71 @@ cmd_sync() {
 		printf 'sync-upstream: already at %s, nothing to do\n' "$target"
 		return 0
 	fi
-	# Only the built tree is destroyed by a sync, and owned paths are carried across it, so an
-	# uncommitted owned file or an edit anywhere else is not a reason to refuse.
-	dirty=$(git status --porcelain -- plugins/pstack/skills plugins/pstack/agents | sed 's/^...//')
-	while IFS= read -r p; do
-		dirty=$(printf '%s\n' "$dirty" | grep -v "^plugins/pstack/$p" || true)
-	done < <(owned_paths)
+	# The whole plugin directory is replaced, and owned paths and the manifest are carried across
+	# it, so an uncommitted owned file is not a reason to refuse. An edit to anything else is.
+	owned=$(owned_paths)
+	dirty=$(git status --porcelain -- "$PLUGIN" | sed 's/^...//' |
+		awk -v owned="$owned" -v root="$PLUGIN/" '
+			BEGIN { n = split(owned, o, "\n") }
+			{
+				skip = ($0 == root "package.json")
+				for (i = 1; i <= n; i++)
+					if (o[i] != "" && ($0 == root o[i] || index($0, root o[i] "/") == 1)) skip = 1
+				if (!skip) print
+			}')
 	if [ -n "$(printf '%s' "$dirty" | tr -d '[:space:]')" ]; then
 		printf '%s\n' "$dirty" >&2
 		die "uncommitted changes the build would destroy, commit or stash them first"
 	fi
-	do_build "$target" "$pin" yes
+	cur=$(current_version)
+	next=$(derive_version sync "$cur")
+	do_build "$target" "$pin" "$next" yes
 }
 
 cmd_rebuild() {
-	local pin
+	local pin cur
 	pin=$(read_pin)
-	do_build "$pin" "$pin" no
+	cur=$(current_version)
+	do_build "$pin" "$pin" "$(derive_version rebuild "$cur")" no
 }
 
-case "${1:-}" in
-check)
+cmd_release() {
+	local pin cur
 	pin=$(read_pin)
-	target=$(upstream_head)
-	printf 'target %s\n' "$target" >&2
-	[ -z "${SYNC_TARGET_OUT:-}" ] || printf '%s\n' "$target" >"$SYNC_TARGET_OUT"
-	commits_since "$pin"
-	;;
-rebuild) cmd_rebuild ;;
--h | --help) sed -n '2,25p' "$0" ;;
-*) cmd_sync "${1:-}" ;;
-esac
+	cur=$(current_version)
+	do_build "$pin" "$pin" "$(derive_version release "$cur")" no
+}
+
+usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$HERE/sync-upstream.sh"; }
+
+main() {
+	case "${1:-}" in
+	check)
+		local pin target
+		pin=$(read_pin)
+		target=$(upstream_head)
+		printf 'target %s\n' "$target" >&2
+		[ -z "${SYNC_TARGET_OUT:-}" ] || printf '%s\n' "$target" >"$SYNC_TARGET_OUT"
+		commits_since "$pin"
+		;;
+	-h | --help) usage ;;
+	recover)
+		recover_txn explicit
+		;;
+	rebuild)
+		recover_txn
+		cmd_rebuild
+		;;
+	release)
+		recover_txn
+		cmd_release
+		;;
+	*)
+		recover_txn
+		cmd_sync "${1:-}"
+		;;
+	esac
+}
+
+# Sourced by a test harness, the functions are available and nothing runs.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

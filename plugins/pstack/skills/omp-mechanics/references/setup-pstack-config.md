@@ -1,83 +1,137 @@
 # The omp shape of pstack's model configuration
 
-Amends **setup-pstack** steps 2, 3, 5, and 6. The block in the skill's step 5 is the
-role-to-capability table. This file is the file format.
+Amends **setup-pstack**. The skill's role table says which capability each workflow role needs. This
+file is the file format, the routing contract, and the panel rules.
 
-Two keys in `~/.omp/agent/config.yml` carry the choices. `task.agentModelOverrides` maps an agent
-name to a capability alias, and omp expands that alias through `modelRoles`. A `modelRoles` value
-may carry an effort suffix, written `<selector>:<effort>`, which is where the step 3 budget answer
-lands. The alias namespace is the operator's, and nothing in pstack reads a specific alias name.
-What is fixed is the four capabilities and the role labels, which are the ones poteto-mode and the
-routed skills use.
+## One mechanism
 
-A third key decides which model a slot ends up on after a failure. `retry.fallbackChains` is keyed
-by the same role names, and a spawn reached through a `@role` alias inherits that role's chain
-rather than the `default` chain. Leave it alone unless the operator asks, and tell them a panel
-slot can land off its configured family when its chain fires.
+Model routing is one settings record, `task.agentModelOverrides`, mapping an exact agent name to one
+concrete model selector. pstack ships six model-free agent definitions, and the routed workflows
+select them through the `agent` field of a `task` item. Nothing else carries a model: no per-call
+`model`, no extra pstack configuration file, no extension routing hook, and no `modelRoles` layer
+that pstack depends on.
 
-Three more per-agent records sit beside the model map, keyed the same way and all optional for
-pstack. `task.agentServiceTierOverrides` sets a provider service tier,
-`task.agentPrewalk` arms a cheap-model handoff at the first write, and `task.agentAdvisor` pairs a
-spawn with an advisor model. Write none of them unless the operator asks for one.
+Resolution order for a spawn is the settings override, then the agent file's frontmatter (the
+shipped files set none), then the parent/configured task fallback. So an agent with **no entry runs
+on whatever the parent session would have used**. Omission is the inherit value. Retry fallbacks and
+extension routing hooks can still change the model that finally answers, so report the resolved
+model that task results return rather than promising diversity from configuration alone.
 
-Overwrite the whole pstack part of both maps so re-runs stay idempotent, and leave omp's own roles
-alone. Adapt the names below rather than copying them.
+See [task](omp://tools/task.md), [agent discovery](omp://task-agent-discovery.md), and
+[models](omp://models.md).
+
+## The six owned keys
+
+| Key | Capability | Used for |
+|---|---|---|
+| `pstack_fast` | fast code, mechanical work | explorers, investigators, reflect tooling lens, swarm workers, delegated feature, refactoring, bug-fix, perf-issue, and hillclimb implementers |
+| `pstack_judgment` | judgment and prose | explainers, why synthesizer, reflect judgment lens and synthesizer, explicitly hardest delegated tasks, other delegated prose or review |
+| `pstack_panel_1` to `pstack_panel_4` | diverse-model panel slots | arena runners and cross-judge, architect runners, interrogate reviewers, reflect divergent (slot 2), swarm model-race arms |
+
+These six names are the **setup-owned key set**. Setup may add, replace, or remove only these keys.
+It never deletes by prefix, so an unknown `pstack_*` key, every other override, and all other
+configuration records stay exactly as found. Setup does not write service-tier, prewalk, advisor,
+retry-chain, or model-role records, and it does not edit installed agent definitions or any user
+agent root.
+
+## Values
+
+A value is **one selector, never a list**, built from `omp models --json`:
+
+- Take `selector` from a row of that output. Never rewrite hyphenated model IDs or invent a slug the
+  command did not print.
+- Append `:<thinking>` only when the row's `thinking` array lists that level. The budget labels map
+  `unlimited` to `max`, `large` to `xhigh`, `medium` to `high`, and `small` to `medium`. When the
+  requested level is unsupported, use the highest level in the array at or below it. When none is at
+  or below it, ask the operator to choose. A row whose `thinking` is `null` keeps its bare selector,
+  and setup says that its thinking is not controllable.
+- `auto` is valid only as a documented thinking suffix. Never write a literal `inherit-parent`, a
+  bare `auto`, a list, or an `@alias` as a pstack-written value.
+- A choice to inherit means **remove that agent's key**, so the agent follows the parent.
+- Existing operator aliases and `modelRoles` entries stay untouched. Setup may resolve one for
+  display, but the value it writes is a confirmed concrete selector.
+
+The budget is reported in setup's summary. There is no second persistent budget setting, and no
+prose `# budget` line is read to route a worker.
 
 ```yaml
 task:
   agentModelOverrides:
-    # One entry per role agent, one alias per capability. Delete an entry and that
-    # agent runs on the parent chat model, which is the right default and needs no
-    # configuration. `inherit-parent` and `auto` are always-valid values that state
-    # it out loud. An alias entry in a panel list still counts toward its fan-out.
-    pstack_feature: "@pstack_fast_code"            # feature, refactoring
-    pstack_refactoring: "@pstack_fast_code"
-    pstack_bug_fix: "@pstack_fast_code"            # bug-fix
-    pstack_perf_issue: "@pstack_fast_code"         # perf-issue
-    pstack_hillclimb: "@pstack_fast_code"          # hillclimb
-    pstack_judgment: "@pstack_judgment"            # judgment and prose
-    pstack_hardest: "@pstack_judgment"             # hardest tasks
-    pstack_how_explorer: "@pstack_fast_code"       # how explorer
-    pstack_how_explainer: "@pstack_judgment"       # how explainer
-    pstack_why_investigator: "@pstack_fast_code"   # why investigators
-    pstack_why_synthesizer: "@pstack_judgment"     # why synthesizer
-    pstack_reflect_tooling: "@pstack_instruction"  # reflect tooling
-    pstack_reflect_judgment: "@pstack_judgment"    # reflect judgment, divergent, synthesizer
-    pstack_reflect_divergent: "@pstack_family_2"
-    pstack_reflect_synthesizer: "@pstack_judgment"
-    pstack_swarm_worker: "@pstack_fast_code"       # swarm workers
-    pstack_arena_runner_1: "@pstack_family_1"      # arena runners
-    pstack_arena_runner_2: "@pstack_family_2"
-    pstack_arena_runner_3: "@pstack_family_3"
-    pstack_arena_runner_4: "@pstack_family_4"
-    pstack_arena_judge_1: "@pstack_family_1"       # arena cross-judge pool
-    pstack_arena_judge_2: "@pstack_family_2"
-    pstack_architect_runner_1: "@pstack_family_1"  # architect runners
-    pstack_architect_runner_2: "@pstack_family_2"
-    pstack_architect_runner_3: "@pstack_family_3"
-    pstack_architect_runner_4: "@pstack_family_4"
-    pstack_interrogate_reviewer_1: "@pstack_family_1"  # interrogate reviewers
-    pstack_interrogate_reviewer_2: "@pstack_family_2"
-    pstack_interrogate_reviewer_3: "@pstack_family_3"
-    pstack_interrogate_reviewer_4: "@pstack_family_4"
-modelRoles:
-  # One line per alias. Each value is a selector `omp models` printed on this machine,
-  # taken from the user's step 3 answer. Write no slug you did not detect. Omit an
-  # alias and drop its entries above to run those roles on the parent chat model.
-  #   pstack_judgment     strongest judgment, for vague intent and cross-cutting design
-  #   pstack_instruction  strongest instruction following, for a precisely specified sequence
-  #   pstack_fast_code    fast code, for mechanical edits and bulk collection
-  #   pstack_family_1..4  one strong reviewer per distinct detected family, in family order
+    pstack_fast: "<provider/fast-model>:<thinking>"
+    pstack_judgment: "<provider/strongest-judgment-model>:<thinking>"
+    pstack_panel_1: "<provider/model-family-1>:<thinking>"
+    pstack_panel_2: "<provider/model-family-2>:<thinking>"
+    pstack_panel_3: "<provider/model-family-3>:<thinking>"
+    pstack_panel_4: "<provider/model-family-4>:<thinking>"
 ```
 
-Four capabilities cover every role, so four answers configure the whole stack. The panel roles are
-the exception. Each slot is a separate agent name, needs its own thin agent file, and takes its
-family from its own entry. A slot with no entry runs on the parent chat model, and four slots with
-no entries are four runs of the same model.
+The angle-bracket values above are placeholders. Only setup's own output, built from the machine's
+`omp models --json`, contains real selectors. Write any subset: `pstack_panel_3` and
+`pstack_panel_4` are optional, and an omitted key inherits.
 
-The budget question in step 3 still applies. It picks the effort tier inside each family. With no
-selector at the asked-for tier, take the same family's highest tier at or below the target, and
-mark the role as needing a choice when that family offers none.
+## Which file is edited
 
-Step 6 reports which entries were written, that `modelRoles` now carries the model choices, and
-that both apply to new sessions.
+Edit the effective **user** configuration under the active profile and agent directory, not a
+remembered default path:
+
+1. `omp config path` prints the agent directory in effect for this process, including profile,
+   `PI_CODING_AGENT_DIR`, and XDG relocation. The user file is `config.yml` there.
+2. Edit a project `.omp/config.yml` or an overlay file only when the operator names it.
+3. Read the effective value from every layer that can supply it. `omp config get
+   task.agentModelOverrides --json` shows the persisted settings, but `--config` and
+   `PI_CONFIG_FILES` overlays and runtime overrides can outrank them. When a higher layer supplies a
+   key, display that value instead of claiming the lower-layer edit won.
+
+See [configuration](omp://config-usage.md) for the layer order. Change only the six keys, keep every
+other entry and comment, and write the file so a re-run is idempotent. New values apply to task
+launches from this point on. Setup changes neither the active chat model nor the session.
+
+## Panel selection
+
+A map value is one selector. Each configured numbered key is one reusable model slot, not a
+participant list.
+
+- For arena runners, architect runners, and interrogate reviewers, read
+  `task.agentModelOverrides` from the **effective session settings** and take configured
+  `pstack_panel_<n>` slots in numeric order. If fewer than two are configured, append the
+  lowest-numbered missing slots until there are two. An unconfigured installation therefore still
+  runs two independent contexts without promising different models.
+- By default run one participant per selected slot. An explicit larger N repeats the selected slots
+  round-robin with a unique task `name` for every run. N is not capped at four. Unconfigured slots do
+  not encode extra persistent seats; an explicit N supplies extra runs.
+- Arena runs exactly one cross-judge after candidates freeze. Prefer a configured slot whose model is
+  known to differ from the writer's family, and otherwise use slot 1 and state the diversity limit.
+  Decide the family from model metadata and returned resolved identities, never from provider alone
+  or a slug prefix. When the writer's family is unknown, do not claim a comparison was proved.
+- Reflect keeps its three lenses and a separate synthesizer: tooling on `pstack_fast`, judgment and
+  synthesizer on `pstack_judgment`, divergent on `pstack_panel_2`. A divergent slot that should
+  differ from judgment is reported when it does not.
+- Swarm repeats `pstack_fast` for ordinary N-way work. A model comparison assigns the shipped panel
+  slots to its arms. It never asks the operator to create agent files.
+
+Report the resolved models that task results return, including the fallback flag. If a run shows
+that two slots resolved to the same model, say so.
+
+## Installation and discovery
+
+The marketplace install ships the plugin's `agents/` directory, and omp-origin marketplace roots do
+not need a foreign-source opt-in. After `/marketplace install`, run `/reload-plugins` so the new
+agents appear, and restart omp when an extension module is new. Do not add native-root agent
+symlinks, and do not enable unrelated plugins to make the names resolve.
+
+A routed workflow needs its exact agent name. When discovery or policy blocks it, report the
+unavailable configured route. Never fall back to a generic `task` call and claim setup took effect.
+
+## Vibe
+
+Vibe exposes only `fast` and `good`. The six names are not selectable there, so per-role task
+routing from setup is unavailable on that surface. Do not rewrite the unrelated `sonic` or `task`
+overrides to imitate it. A request that needs exact model-role execution reports the missing task
+capability.
+
+## Report
+
+Setup's final report names which of the six keys it wrote, replaced, or removed, which file it edited,
+any higher-priority layer that overrides a result, each written selector with its thinking suffix or
+the fact that thinking is not controllable, and that new task launches use the values without a
+restart.

@@ -13,7 +13,7 @@ This skill orchestrates three others: an inline mining pass (see step 1), the `a
 
 ### 0. Check for an existing skill
 
-Look recursively for `.omp/skills/**/*-mode/SKILL.md` and `~/.omp/agent/skills/*-mode/SKILL.md` matching the user's handle. Mode skills can live in a personal category directory (`.omp/skills/<handle>/`), not only at the top level. If one exists, confirm intent with `ask` (unless they already said "update my skill" or similar):
+Check one level of skills only. Per `omp://skills.md`, a skill is `<root>/<name>/SKILL.md` directly under a skills root, never nested deeper. The project root is the nearest project `.omp/skills`. The user root is `skills` under the effective agent directory. Look for `<name>-mode/SKILL.md` matching the user's handle in both roots. Listing visibility does not pin a personal mode. If one exists, confirm intent with `ask` (unless they already said "update my skill" or similar):
 
 - Update the existing skill (default for repeat runs)
 - Start fresh (rare, ask why before doing it)
@@ -25,7 +25,7 @@ Update mode changes the rest of the flow:
 
 ### 1. Mine their history
 
-Locate the active workspace's transcripts before fanning out. The system prompt names the session transcript tree `~/.omp/agent/sessions/<encoded-cwd>/*.jsonl`, with subagent sidecars at `<session-stem>/<AgentId>.jsonl`. Use only that path. Don't glob across sibling `~/.omp/agent/sessions/<other-cwd>/` buckets. That crosses workspace boundaries and reads private chats from unrelated projects.
+Before fanning out, read `skill://omp-mechanics/references/session-store-on-omp.md` and resolve the active session root as it describes. Locate the active workspace's transcripts under that root and stay within the authorized workspace. Don't glob across sibling workspace buckets. That crosses workspace boundaries and reads private chats from unrelated projects.
 
 Survey recent agent conversations within that scope for recurring patterns. Run multiple parallel subagents across slices of history (e.g. last 2-4 weeks, split into 3 slices so each has enough material). Each slice mining subagent reads transcripts from the workspace-scoped path the parent provides, looks for the signals below, and returns a short structured list of patterns it saw with evidence pointers. Default signals worth hunting:
 
@@ -42,7 +42,7 @@ Cross-check across slices before elevating a signal. Patterns seen in 2+ slices 
 
 Mining misses intent that hasn't come up yet. Use the `ask` tool (structured multi-choice) rather than asking the user to type from scratch.
 
-Shape: one or two questions with 4-6 options each, `allowMultiple: true` for category questions. Start broad ("Which areas matter most?"), then follow up on selected areas with specific options. After the structured rounds, one free-form chat question catches anything the options missed.
+Shape: one or two questions with 4-6 options each, `multi: true` for category questions. Start broad ("Which areas matter most?"), then follow up on selected areas with specific options. After the structured rounds, one free-form chat question catches anything the options missed.
 
 Don't dump 20 questions.
 
@@ -63,9 +63,9 @@ The **poteto-mode** skill shows the shape. Read it for granularity. Don't copy i
 
 ### 4. Draft the skill
 
-Use the `authoring-a-skill` playbook to author the skill. Placement:
+Use `skill://poteto-mode/playbooks/authoring-a-skill.md` to author the skill. Placement:
 
-- Path: preserve an existing mode skill's category. For a new mode, use `.omp/skills/<handle>/<handle>-mode/SKILL.md` when the repo has an established personal category for that handle. Otherwise default to `.omp/skills/<handle>-mode/SKILL.md` in the project (or `~/.omp/agent/skills/<handle>-mode/` if the user prefers a personal skill).
+- Path: preserve an existing mode skill's location. For a new mode, use `<project root>/<handle>-mode/SKILL.md` in the nearest project `.omp/skills`, or `<user root>/<handle>-mode/SKILL.md` if the user prefers a personal skill. Never nest it deeper than one level.
 - Handle: the user's first name or chosen identifier.
 - Frontmatter `description`: trigger on their name + `/<handle>-mode` + "work in their style", not on generic keywords like "write code" or "review PR".
 - Frontmatter formatting: follow the `authoring-a-skill` playbook's YAML rules. Keep `description` as one YAML scalar. Quote it or use `description: >-` with indented continuation lines when punctuation or wrapping requires it.

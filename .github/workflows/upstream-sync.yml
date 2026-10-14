@@ -27,78 +27,233 @@ jobs:
         with:
           fetch-depth: 0
 
-      - id: plan
+      - uses: oven-sh/setup-bun@v2
+
+      # An explicit sha is validated and chosen before anything decides the run is empty, because the
+      # drift query only knows about the default target. A branch that already exists is not a reason
+      # to stop either, it is state to reconcile, so the plan only records whether it is there.
+      - name: Plan
+        id: plan
         env:
           SHA_INPUT: ${{ inputs.sha }}
         run: |
+          set -euo pipefail
           export SYNC_TARGET_OUT="$RUNNER_TEMP/target.txt"
+          explicit="${SHA_INPUT:-}"
+          if [ -n "$explicit" ]; then
+            printf '%s' "$explicit" | grep -qxE '[0-9a-f]{40}' || {
+              echo "target must be a full 40-hex sha" >&2
+              exit 1
+            }
+          fi
           bash omp-port/sync-upstream.sh check > "$RUNNER_TEMP/commits.txt"
-          if [ ! -s "$RUNNER_TEMP/commits.txt" ]; then
-            echo "no upstream pstack change since the pin"
-            exit 0
+          target="$explicit"
+          if [ -z "$target" ]; then
+            if [ ! -s "$RUNNER_TEMP/commits.txt" ]; then
+              echo "no upstream pstack change since the pin"
+              exit 0
+            fi
+            target=$(cat "$RUNNER_TEMP/target.txt")
           fi
-          open=$(gh pr list --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("sync/upstream-"))] | length')
-          if [ "$open" -gt 0 ]; then
-            gh pr list --state open --json number,headRefName \
-              --jq '.[] | select(.headRefName | startswith("sync/upstream-")) | "open sync PR #\(.number) on \(.headRefName), resolve it first"'
-            exit 0
-          fi
-          target="$SHA_INPUT"
-          [ -n "$target" ] || target=$(cat "$RUNNER_TEMP/target.txt")
           printf '%s' "$target" | grep -qxE '[0-9a-f]{40}' || {
             echo "target must be a full 40-hex sha" >&2
             exit 1
           }
-          short=${target:0:7}
-          if git ls-remote --exit-code origin "refs/heads/sync/upstream-$short" >/dev/null 2>&1; then
-            echo "sync/upstream-$short already exists on origin"
+          pin=$(tr -d '[:space:]' < omp-port/UPSTREAM)
+          if [ "$target" = "$pin" ]; then
+            echo "main already pins $target, nothing to sync"
             exit 0
           fi
-          printf 'target=%s\nshort=%s\ngo=yes\n' "$target" "$short" >> "$GITHUB_OUTPUT"
+          short=${target:0:7}
+          branch="sync/upstream-$short"
+          # Another target's open PR blocks this one, the matching PR is the one to recover.
+          others=$(gh pr list --state open --json number,headRefName \
+            --jq "[.[] | select((.headRefName | startswith(\"sync/upstream-\")) and .headRefName != \"$branch\")]")
+          if [ "$(printf '%s' "$others" | jq 'length')" -gt 0 ]; then
+            printf '%s' "$others" | jq -r '.[] | "open sync PR #\(.number) on \(.headRefName), resolve it first"'
+            exit 0
+          fi
+          # ls-remote answers 0 when the branch is there, 2 when it is not, and anything else is the
+          # remote being unreachable, which must stop the run instead of reading as a missing branch.
+          rc=0
+          git ls-remote --exit-code origin "refs/heads/$branch" > /dev/null 2> "$RUNNER_TEMP/ls-remote.err" || rc=$?
+          case "$rc" in
+            0) exists=yes ;;
+            2) exists=no ;;
+            *)
+              cat "$RUNNER_TEMP/ls-remote.err" >&2
+              echo "could not reach origin to look for $branch, ls-remote exited $rc" >&2
+              exit 1
+              ;;
+          esac
+          printf 'target=%s\nshort=%s\nexists=%s\ngo=yes\n' "$target" "$short" "$exists" >> "$GITHUB_OUTPUT"
 
       # A red trunk means the build no longer reproduces the pinned tree. Syncing on top of that
       # merges over the breakage instead of fixing it.
-      - if: steps.plan.outputs.go == 'yes'
-        run: bash omp-port/check-port.sh
+      - name: Gate trunk
+        if: steps.plan.outputs.go == 'yes'
+        run: |
+          bash omp-port/check-port.sh
+          bun test plugins/pstack/extensions/potetomode/index.test.js
 
-      - if: steps.plan.outputs.go == 'yes'
+      # The gate and the extension tests that decide the merge run here, on the tree that is merged:
+      # the sync branch rebased onto the exact tip of main. A PR opened with github.token does not
+      # trigger pull_request or push workflows, so nothing downstream is relied on to catch it.
+      - name: Sync, gate the rebased result, merge
+        if: steps.plan.outputs.go == 'yes'
         env:
           TARGET: ${{ steps.plan.outputs.target }}
           SHORT: ${{ steps.plan.outputs.short }}
+          EXISTS: ${{ steps.plan.outputs.exists }}
         run: |
+          set -euo pipefail
           AT=$(printf '\100')
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]${AT}users.noreply.github.com"
-          git switch -c "sync/upstream-$SHORT"
-          code=0
-          bash omp-port/sync-upstream.sh "$TARGET" > "$RUNNER_TEMP/sync.log" 2>&1 || code=$?
-          gate=0
-          if [ "$code" -eq 0 ]; then
-            bash omp-port/check-port.sh > "$RUNNER_TEMP/gate.txt" 2>&1 || gate=$?
+          branch="sync/upstream-$SHORT"
+          log="$RUNNER_TEMP"
+          remote_sha=""
+
+          if [ "$EXISTS" = yes ]; then
+            # A prior run pushed this branch. Reconcile it instead of stopping, so a missing PR is
+            # opened and a red gate is retried against the current main.
+            git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+            pinned=$(git show "origin/$branch:omp-port/UPSTREAM" | tr -d '[:space:]')
+            if [ "$pinned" != "$TARGET" ]; then
+              echo "origin/$branch pins ${pinned:0:7}, not ${SHORT}, resolve it by hand" >&2
+              exit 1
+            fi
+            git switch -C "$branch" "origin/$branch"
+            remote_sha=$(git rev-parse "origin/$branch")
+            echo "reconciling the existing $branch at $remote_sha"
           else
-            gate=1
-            echo "gate not run, the sync exited $code" > "$RUNNER_TEMP/gate.txt"
+            git switch -c "$branch"
+            code=0
+            bash omp-port/sync-upstream.sh "$TARGET" > "$log/sync.log" 2>&1 || code=$?
+            if [ "$code" -ne 0 ]; then
+              # The install is a transaction, so a failed sync left the old tree. There is no valid
+              # artifact to publish, and a partial one must never be pushed as a release.
+              cat "$log/sync.log"
+              echo "the sync exited $code and produced no artifact, nothing pushed" >&2
+              exit 1
+            fi
+            if git diff --cached --quiet; then
+              cat "$log/sync.log"
+              echo "the sync exited 0 and changed nothing, no PR to open" >&2
+              exit 1
+            fi
+            version=$(jq -r .version plugins/pstack/package.json)
+            git commit -q -m "sync: build upstream pstack $SHORT ($version)"
           fi
           version=$(jq -r .version plugins/pstack/package.json)
-          git add -A
-          if git diff --cached --quiet; then
-            echo "sync exited $code and changed nothing, no PR to open"
-            cat "$RUNNER_TEMP/sync.log"
-            exit 1
-          fi
-          git commit -q -m "sync: build upstream pstack $SHORT ($version)"
-          git push -q origin HEAD
-          {
-            printf 'Upstream commits since the previous pin.\n\n```\n'; cat "$RUNNER_TEMP/commits.txt"
-            printf '```\n\nSync output, exit %s.\n\n```\n' "$code"; cat "$RUNNER_TEMP/sync.log"
-            printf '```\n\nGate output, exit %s.\n\n```\n' "$gate"; cat "$RUNNER_TEMP/gate.txt"
-            printf '```\n'
-          } > "$RUNNER_TEMP/body.md"
-          pr=$(gh pr create --base main --head "sync/upstream-$SHORT" \
-            --title "sync: upstream pstack $SHORT ($version)" --body-file "$RUNNER_TEMP/body.md" | tail -n1)
-          if [ "$code" -eq 0 ] && [ "$gate" -eq 0 ]; then
-            gh pr merge "$pr" --squash --delete-branch
+
+          push_branch() {
+            local head
+            head=$(git rev-parse HEAD)
+            if [ -z "$remote_sha" ]; then
+              git push -q origin "HEAD:refs/heads/$branch"
+            elif [ "$head" != "$remote_sha" ]; then
+              git push -q --force-with-lease="refs/heads/$branch:$remote_sha" origin "HEAD:refs/heads/$branch"
+            else
+              return 0
+            fi
+            remote_sha="$head"
+          }
+
+          find_pr() {
+            gh pr list --state open --head "$branch" --base main --json number --jq '.[0].number // empty'
+          }
+
+          # Reuse the open PR for this branch, and open one only when there is none.
+          ensure_pr() {
+            pr=$(find_pr)
+            if [ -z "$pr" ]; then
+              gh pr create --base main --head "$branch" \
+                --title "sync: upstream pstack $SHORT ($version)" --body-file "$1" > /dev/null
+              pr=$(find_pr)
+              [ -n "$pr" ] || { echo "could not find the PR just created for $branch" >&2; exit 1; }
+            else
+              gh pr comment "$pr" --body-file "$1" > /dev/null
+            fi
+          }
+
+          write_body() {
+            {
+              printf 'Upstream commits since the previous pin.\n\n```\n'
+              if [ -f "$log/commits.txt" ]; then tail -c 20000 "$log/commits.txt"; fi
+              printf '```\n\nTested against main %s, tested head %s.\n' "$1" "$2"
+              printf '\nSync output.\n\n```\n'
+              if [ -f "$log/sync.log" ]; then tail -c 15000 "$log/sync.log"; else echo "reconciled an existing branch, no sync ran"; fi
+              printf '```\n\nGate output, exit %s.\n\n```\n' "$3"
+              if [ -f "$log/gate.txt" ]; then tail -c 15000 "$log/gate.txt"; fi
+              printf '```\n\nExtension tests, exit %s.\n\n```\n' "$4"
+              if [ -f "$log/tests.txt" ]; then tail -c 8000 "$log/tests.txt"; fi
+              printf '```\n'
+            } > "$log/body.md"
+          }
+
+          attempt=0
+          while :; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -gt 3 ]; then
+              echo "main kept advancing while the gate ran, giving up without merging" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin main
+            base=$(git rev-parse origin/main)
+            if ! git rebase "$base" > "$log/rebase.log" 2>&1; then
+              # A conflict is a human decision, so nothing is resolved here and nothing is merged.
+              git rebase --abort || true
+              cat "$log/rebase.log"
+              printf 'rebase onto %s conflicted, the gate did not run\n' "$base" > "$log/gate.txt"
+              printf 'not run, the rebase conflicted\n' > "$log/tests.txt"
+              write_body "$base" "$(git rev-parse HEAD)" 1 1
+              push_branch
+              ensure_pr "$log/body.md"
+              echo "left PR #$pr open, the branch does not rebase onto main $base without conflicts" >&2
+              exit 1
+            fi
+
+            gate=0
+            bash omp-port/check-port.sh > "$log/gate.txt" 2>&1 || gate=$?
+            tests=0
+            bun test plugins/pstack/extensions/potetomode/index.test.js > "$log/tests.txt" 2>&1 || tests=$?
+            head=$(git rev-parse HEAD)
+            echo "tested base $base, tested head $head, gate exit $gate, tests exit $tests"
+            write_body "$base" "$head" "$gate" "$tests"
+            push_branch
+            ensure_pr "$log/body.md"
+
+            if [ "$gate" -ne 0 ] || [ "$tests" -ne 0 ]; then
+              echo "left PR #$pr open for a human, gate exit $gate, tests exit $tests" >&2
+              exit 1
+            fi
+
+            # main may have moved while the gate ran. Merging now would land a tree nobody tested,
+            # so test the new combination instead. Branch protection or a merge queue is what
+            # closes the remaining window between this check and the merge itself.
+            git fetch --no-tags origin main
+            if [ "$(git rev-parse origin/main)" != "$base" ]; then
+              echo "main advanced past $base while the gate ran, rebasing and gating again"
+              continue
+            fi
+            pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+            if [ "$pr_head" != "$head" ]; then
+              echo "PR #$pr is at $pr_head, not the tested head $head, not merging" >&2
+              exit 1
+            fi
+            gh pr merge "$pr" --squash --delete-branch --match-head-commit "$head"
             exit 0
-          fi
-          echo "left $pr open for a human: sync exit $code, gate exit $gate"
-          exit 1
+          done
+
+      - name: Keep the logs
+        if: always() && steps.plan.outputs.go == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync-logs
+          path: |
+            ${{ runner.temp }}/sync.log
+            ${{ runner.temp }}/gate.txt
+            ${{ runner.temp }}/tests.txt
+            ${{ runner.temp }}/rebase.log
+          if-no-files-found: ignore

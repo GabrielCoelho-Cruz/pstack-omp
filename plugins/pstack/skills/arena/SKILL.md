@@ -1,6 +1,6 @@
 ---
 name: arena
-description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
+description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /skill:arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
 ---
 
 # Arena
@@ -13,18 +13,18 @@ Every candidate gets the same prompt, so the prompt is the contract.
 
 1. State the artifact each candidate is producing.
 2. Derive the rubric, 3-6 concrete gradeable criteria for what success looks like on *this* task. It is the picker's tool in Phase D. Candidates only see the task.
-3. Pick the runners. Use the `arena runners` line in `task.agentModelOverrides` in `~/.omp/agent/config.yml`. If the rule or that line is missing, default to one each on your strongest judgment model and your fast code model. An `auto` or `inherit-parent` entry in this line or the cross-judge line means the parent model, so omit `model` for it. If the Task tool rejects a configured entry, run that seat on its family's default and say so. Families go by prefix: `claude-*` and `grok-*`. With no family match, use your strongest judgment model. If it rejects a default, use the closest valid slug of the same family from its error message. Spawn more runners when the arena covers multiple design directions. Use the same model N times when the work is generation-bound rather than judgment-sensitive.
+3. Pick the runners. Runners are the numbered panel agents `pstack_panel_<n>`, routed through `skill://pstack-omp` and configured as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Read `task.agentModelOverrides` from the effective session settings and take the configured `pstack_panel_<n>` slots in numeric order. If fewer than two are configured, append the lowest-numbered missing slots until there are two. Use one runner per selected slot. When the arena covers multiple design directions, or the work is generation-bound rather than judgment-sensitive, an explicit larger N repeats the selected slots round-robin. N is not capped at four. If discovery blocks a required agent name, report the unavailable configured route. Never fall back to the generic worker and claim the setup took effect. Vibe has no routing agents, so per-role routing is unavailable there.
 4. Give each candidate its own output location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`), per the **separate-before-serializing-shared-state** principle skill.
 
 ## Phase B: Fan out
 
-Spawn all N subagents in one `task` call with all items in `tasks[]`, each with the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected.
+Spawn all N subagents together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts. Each task item sets `agent` to its `pstack_panel_<n>` slot, a unique `name` per run (required, since slots repeat when N exceeds the slot count), and a `solutionSpace`. Each gets the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected. Report each returned resolved model and fallback flag. Claim model diversity only when those returned identities prove it.
 
 If a candidate produces no output, proceed with N-1 and note the dropout.
 
 ## Phase C: Cross-judge
 
-After all Phase B candidates complete, choose one model from the `arena cross-judge pool` line in `task.agentModelOverrides` in `~/.omp/agent/config.yml`. If the rule or that line is missing, choose from your strongest judgment model and your fast code model. Prefer a different model family from the parent's. Spawn one judge subagent whose brief grants read tools only. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with your reading in Phase D. Don't spawn it while candidates are still writing.
+After all Phase B candidates complete, spawn exactly one cross-judge from the `pstack_panel_<n>` slots. Prefer a configured slot whose model is a different model family from the writer's, judged from model metadata and the returned resolved identities, never from provider alone or a slug prefix. Otherwise use slot 1 and state the diversity limit. If the writer's family is unknown, do not claim a cross-family comparison was proved. Give the judge a brief that grants read-only posture. It sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with your reading in Phase D. Don't spawn it while candidates are still writing. Report its resolved model and fallback flag.
 
 ## Phase D: Pick a base
 

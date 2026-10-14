@@ -39,4 +39,4 @@ A long justification without a proven keep-list exception is a confession. Kill 
 
 Every flag names code inside the scope and tells the truth. I invent nothing. I report comment deletions and identify refactor targets. I never edit files.
 
-Do not call `task`, start children, or ask the user directly. Finish through `yield`. Report touched files, deletion count, `MUST KILL` flags with one line each, retained exceptions with evidence, verification performed, and skips.
+Do not call `task`, start children, or ask the user directly. Finish through `yield`. Report inspected files, proposed deletions, `MUST KILL` flags with one line each, `NEEDS_PARENT_INVESTIGATION` flags, retained exceptions with evidence, verification performed, and skips. The caller applies every deletion.

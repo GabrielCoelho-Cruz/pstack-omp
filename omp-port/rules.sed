@@ -10,25 +10,21 @@
 
 ## 1. Whole-sentence rewrites, which must read raw upstream text before any token rule edits it.
 
-# Cursor's reasoning-effort ladder over its own slug names -> a selector omp models reports.
-s#So `small` turns `claude-[a-z0-9.-]+` into `claude-[a-z0-9.-]+`, and `grok-[a-z0-9.-]+` into `[a-z0-9.-]+` when only that form is detected\.#So `small` takes the lowest-effort selector in the same family that `omp models` reports, and marks the role as needing a choice when that family offers none.#
 # Cursor's multi-slug review panel -> one model per family, resolved at run time (backticked form).
 s#`(claude|gpt|grok|gemini)-[a-z0-9.-]+`(, `(claude|gpt|grok|gemini)-[a-z0-9.-]+`)+#one model per distinct family `omp models` reports#g
 # Same panel in the bare rule-file form, a `<role>: <slug>, <slug>` line with no backticks.
 s#: (claude|gpt|grok|gemini)-[a-z0-9.-]+(, (claude|gpt|grok|gemini)-[a-z0-9.-]+)+$#: one model per distinct family omp models reports#
 # Cursor names the judgment slug twice in one clause; omp names the capability once.
 s#go to your strongest judgment model \(`claude-[a-z0-9.-]+`\)#go to your strongest judgment model#
-# Cursor lists its spawn parameters inline; on omp the whole list is one batched task call.
-s#Spawn all N workers in one message with `subagent_type: generalPurpose`, `environment: "cloud"`, `run_in_background: true`, and the configured model\. Use `environment: "local"` only when the worker needs access to something on the user's computer\.#Spawn all N workers in one `task` call with all items in `tasks[]`, each item `agent`: `task` (omp's general-purpose bundled agent) with `isolated: true`. Every worker runs on this machine, so read `skill://omp-mechanics` for the isolation gate and the per-worker output fallback.#
-s#Spawn all N subagents in one message with `run_in_background: true`, each with#Spawn all N subagents in one `task` call with all items in `tasks[]`, each with#
-s#One message, three `Task` calls, `subagent_type: generalPurpose`, ((explicit `model:` on each|with `model` set as below), )?agent mode \(`readonly: false`\)\.#One `task` call with three items in `tasks[]`, each `agent`: `task` (omp's general-purpose bundled agent) pinned by its own agent name, full tools per spawn. Run the three lenses on three different model families where `omp models` offers them, and keep Divergent on a different model family from Judgment, since the lens earns its name from different priors and not a different prompt.#
-# A diverse-model review is a property of the reviewers, so each skill states it in its own steps.
-s#labeled Reviewer A, B, and so on to match the entry count\. If the rule or that line is missing, use the table defaults\.#labeled Reviewer A, B, and so on to match the entry count. If that line is missing, use the table defaults. Give each reviewer a different model family from the other reviewers and from the parent that wrote the code, resolved at run time from what `omp models` reports. A reviewer sharing the writer's family shares the writer's blind spots, which is the one thing this skill exists to defeat. `skill://omp-mechanics` covers the single-family case.#
+# Cursor lists its spawn parameters inline. On omp the live task schema decides batch versus flat shape, background execution, and isolation, so each rewrite is conditional on it.
+s#Spawn all N workers in one message with `subagent_type: generalPurpose`, `environment: "cloud"`, `run_in_background: true`, and the step 4 model, left unset for `auto` or `inherit-parent`\. Use `environment: "local"` only when the worker needs access to something on the user's computer\.#Spawn all N workers together through `skill://pstack-omp`, each on the step 4 route, in the batch or flat shape the live `task` schema accepts. Add `isolated: true` only when the schema exposes it and the isolation gate in `skill://omp-mechanics` passes. A worker that needs this machine's installed tools, simulators, or local credentials runs in the shared checkout instead.#
+s#Spawn all N subagents in one message with `run_in_background: true`, each with#Spawn all N subagents together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts, each with#
+s#One message, three `Task` calls, `subagent_type: generalPurpose`, agent mode \(`readonly: false`\)\.#Spawn the three reviewers together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts, each on its own exact agent route below with full tools per spawn.#
 # Cursor reads the playbook from trunk because it is vendored there; omp reads the install.
-s#Read these from trunk at program start\. Re-read them at every tick\.#Read these at program start and re-read them at every tick. The install on disk is authoritative, not a remote ref.#
-# Cursor's rule file is the artifact step 5 writes; omp's is a keyed map in its own config.
-s#Write `~/\.cursor/rules/pstack-models\.mdc`, an always-applied rule that sets pstack's model per role\.#Write `task.agentModelOverrides` in `~/.omp/agent/config.yml`, the keyed override map that sets pstack's model per role agent. The chat model stays the operator's choice, made with `/model`, and pstack never overrides it. `skill://omp-mechanics` holds the file shape.#
-s|Write `~/\.cursor/rules/pstack-models\.mdc` with `alwaysApply: true`, a `# budget` line with the chosen label and its target effort, and one line per role, using the same labels poteto-mode uses. Overwrite the whole file so re-runs stay idempotent. Shape:|Write `task.agentModelOverrides` and `modelRoles` in `~/.omp/agent/config.yml`, with a `# budget` comment carrying the chosen label and its target effort, and one entry per role agent, using the same labels poteto-mode uses. Overwrite the whole pstack part of both maps so re-runs stay idempotent. The block below is the role-to-capability table and not the file format, which `skill://omp-mechanics` holds. Shape:|
+s#Read these from trunk at program start\. Re-read them at every tick\.#Read these at program start and re-read them at every tick. The loaded skill files are authoritative, not a remote ref.#
+# Cursor's rule file is the artifact step 5 writes; omp's is the keyed task.agentModelOverrides map in the effective user settings.
+s#Write `~/\.cursor/rules/pstack-models\.mdc`, an always-applied rule that sets pstack's model per role\.#Write `task.agentModelOverrides` in the effective user settings, the keyed override map that sets pstack's model per routing agent. The chat model stays the operator's choice, made with `/model`, and setup never changes it. `skill://omp-mechanics/references/setup-pstack-config.md` holds the routing contract and the file shape.#
+s|Write `~/\.cursor/rules/pstack-models\.mdc` with `alwaysApply: true`, a `# budget` line with the chosen label and its target effort, and one line per role, using the same labels poteto-mode uses\. Overwrite the whole file so re-runs stay idempotent\. Shape:|Write only the `task.agentModelOverrides` keys this skill owns, one concrete selector per key, and preserve every other entry. The budget is a label you report plus a `:thinking` suffix on each selector, not a stored line. `skill://omp-mechanics/references/setup-pstack-config.md` holds the owned keys and the file shape. The block below is the role-to-capability table and not the file format. Shape:|
 
 ## 2. Model slugs. Tiered by capability first, then a catch-all for anything upstream adds later.
 
@@ -78,76 +74,72 @@ s#readonly: true#read-only posture, granted in the brief#g
 # Cursor's ask tool -> `ask`, omp's tool name.
 s#`AskQuestion`#`ask`#g
 s#AskQuestion#`ask`#g
-s#`allow_multiple: true`#`allowMultiple: true`#g
+s#`allow_multiple: true`#`multi: true`#g
 # Cursor's per-role model rule file -> the keyed override map in omp's config.
-s#`~/\.cursor/rules/pstack-models\.mdc`#`task.agentModelOverrides` in `~/.omp/agent/config.yml`#g
-s#the `pstack-models\.mdc` rule#`task.agentModelOverrides` in `~/.omp/agent/config.yml`#g
+s#`~/\.cursor/rules/pstack-models\.mdc`#`task.agentModelOverrides`#g
+s#the `pstack-models\.mdc` rule#`task.agentModelOverrides`#g
 # Cursor's Task-spawn slug enumeration and hypothetical models API -> `omp models`.
 s#Enumerate the model slugs you can pass to a `Task` subagent in this session\. That is the dependable source\. If Cursor also exposes a models API or CLI that lists the user's entitled models, prefer it for completeness\.#Run `omp models` to list the models configured on this machine. That is the dependable source.#
-# Cursor's blocking watch mode -> the same hazard, named with omp's blocking primitive too.
-s#Reaching for `drive` inside a phase agent stops that agent finishing its turn\.#Blocking on `drive`, or on `hub` `op: "wait"`, inside a phase agent stops that agent finishing its turn.#
+# Cursor's blocking watch mode -> the same hazard, named with omp's polling and blocking primitives too.
+s#Reaching for `drive` inside a phase agent stops that agent finishing its turn\.#Blocking on `drive`, or polling a job in a loop with `read proc://`, inside a phase agent stops that agent finishing its turn.#
 # Cursor's Task `model` argument -> omp has no per-call field, only the keyed override map.
-s#\(omit Task `model`\)#(leave it out of `task.agentModelOverrides`)#g
-s#If the configured value is `inherit-parent` or `auto`, omit `model` instead\.#If the configured value is `inherit-parent` or `auto`, leave that reviewer out of `task.agentModelOverrides` instead.#
-s#For a model race, name each arm's model up front\.#For a model race, give each arm its own agent file and its own `task.agentModelOverrides` entry.#
-# Cursor writes an always-applied rule file; omp writes two keys in its own config.
+s#\(omit Task `model`\)#(remove that agent's key from `task.agentModelOverrides`)#g
+s#For a model race, name each arm's model up front\.#For a model race, run the arms on distinct `pstack_panel_<n>` agents, each with its own configured selector.#
+# Cursor writes an always-applied rule file; omp writes only the owned task.agentModelOverrides keys.
 s#Tell the user the rule was written and that it applies to new sessions\.#Tell the user which entries were written and that they apply to new sessions.#
 s#Per-role lines in the `/setup-pstack` rule override#Per-role entries written by `/setup-pstack` override#g
 /^alwaysApply: true$/d
 # Cursor agent frontmatter `is_background` -> omp does not model it.
 /^is_background: true$/d
-# omp gates nested spawning per agent definition, which Cursor has no counterpart for.
-/^name: poteto-agent$/a spawns: "*"
 # The router and its agent must name the omp levers file themselves, not only the pin reminder,
 # so an unpinned read of skill://poteto-mode or a spawned poteto-agent still finds it.
-s|^## Non-negotiables$|## Non-negotiables\n\n**Read `skill://omp-mechanics` right after this file.** It holds the omp-specific levers every step below assumes, and it is the port's only hand-written skill.|
+s|^## Non-negotiables$|## Non-negotiables\n\n**Read `skill://omp-mechanics` right after this file.** It holds the omp-specific levers every step below assumes.|
 s#Reads the `poteto-mode` skill's `SKILL.md` in full before any work, including its inline Principles index\.#Reads the `poteto-mode` skill's `SKILL.md` in full before any work, including its inline Principles index, then `skill://omp-mechanics`.#
-# Cursor derives a mode skill's registry name from a display title; omp uses the slug.
-s#name: Poteto Mode#name: poteto-mode#
+# Cursor derives a skill's registry name from a display title; omp uses the directory slug, and
+# skill://<name> and /skill:<name> match the name exactly, so a title would make the skill unreachable.
+s#^name: Poteto Mode$#name: poteto-mode#
+s#^name: Make Bot UI$#name: make-bot-ui#
 
 ## 4. Cloud agents. Cursor runs them on its own VMs; omp runs isolated subagents on this machine.
 
-s#`environment: "cloud"`#`isolated: true`#g
+s#`environment: "cloud"`#`isolated: true` when the live schema exposes it#g
 s#the full Task schema including `environment`#the full Task schema including `isolated`#g
 # `cloud_base_branch` is not accepted by omp's task tool; a worktree on that base is the answer.
 s#When a worker must start from a non-default pushed branch, pass `cloud_base_branch`\.#When a worker must start from a non-default base, create its `git worktree` on that base first and point the worker at that path.#
-s#One Cursor cloud agent#One isolated subagent (`isolated: true`)#g
-s#each a Cursor cloud agent#an isolated subagent (`isolated: true`)#g
+s#One Cursor cloud agent#One isolated subagent (a private worktree, per `skill://pstack-omp`)#g
+s#each a Cursor cloud agent#an isolated subagent (a private worktree, per `skill://pstack-omp`)#g
 s#Cloud agents cannot read the local store, so their briefs inline what they need or point at repo paths\.#An isolated worker runs on this machine in its own worktree with no conversation history, so its brief inlines what it needs or points at absolute paths.#
-# Cursor's cloud dashboard -> `hub`, omp's live agent and job roster.
-s#the cloud agent's status in the Cursor dashboard#agent state from `hub` `op: "list"` and `hub` `op: "jobs"`#
+# Cursor's cloud dashboard -> omp's `history://` and `proc://` reads.
+s#the cloud agent's status in the Cursor dashboard#agent state from `read history://` (registered agents) and `read proc://` (visible jobs and running agents)#
 # Cursor's cloud PR tooling defaults to draft; omp's github tool defaults to ready.
 s#A built-in PR tool can default to draft, so set `draft: false` on every creation call through it\.#omp's `github` tool opens a ready PR from `op: "pr_create"` unless you pass `draft: true`, so leave that flag off.#
-s#Each live lane runs on its own cloud VM at the PR head\.#Each live lane runs in its own subagent at the PR head, asking for a private worktree with `isolated: true`.#
+s#Each live lane runs on its own cloud VM at the PR head\.#Each live lane runs in its own subagent at the PR head, in a private worktree. Use `isolated: true` when the live schema exposes it, and an explicit `git worktree` otherwise.#
 s#Fan out N parallel cloud workers\.#Fan out N parallel workers.#
-s#N is total workers, not the cloud concurrency limit\.#N is total workers. `task.maxConcurrency` in `~/.omp/agent/config.yml` caps how many run at once.#
+s#N is total workers, not the cloud concurrency limit\.#N is total workers. `task.maxConcurrency` caps how many run at once.#
 # Cursor hands out a cloud-agent URL; omp's prior-run handles are internal URIs.
 s#cloud-agent URL#prior agent's `history://<id>` or `agent://<id>`#g
 # Cursor's local-versus-cloud split -> shared parent checkout versus a private worktree.
 s#cloud spawns#isolated spawns#g
 s#its spawn budget with the cloud default and the local exception list#its spawn budget with the isolated default and the shared-checkout exception list#
 s#Restacks run in cloud\. A local restack at this scale takes the laptop down\.#Restacks run in an isolated subagent with its own worktree, never in the parent checkout.#
-s#After a Cursor restart: local agents are dead, cloud work is not\.#An omp restart stops every agent. Resuming the session rebuilds its subagents as parked rows that `hub` `op: "send"` revives, except isolated ones, which leave only a `history://<id>` transcript.#
+s#After a Cursor restart: local agents are dead, cloud work is not\.#After an omp restart, a resumed session rebuilds its subagents as parked rows that a `write` to `agent://<returned-id>` can revive. Isolated children cannot be cold-revived after a host restart, so reconcile their durable branch, PR, and `history://<id>` transcript and dispatch replacement work.#
 s#reattach cloud work by PR and branch rather than agent id#reattach pushed work by PR and branch rather than agent id#
 s#a Cursor restart#an omp restart#g
 s#cloud agent#isolated subagent#g
 s#Cloud agent#Isolated subagent#g
 
-## 5. Wake mechanisms. Cursor's `/loop` builtin and cloud sleeper -> omp's `/loop`, hub, systemd.
+## 5. Wake mechanisms. Cursor's `/loop` builtin and cloud sleeper -> omp's `/loop` in session and an authenticated integration out of session.
 
-s#Drive a long or stubborn hunt with Cursor's `/loop` command\.#Drive a long or stubborn hunt with omp's `/loop`, which re-submits the same prompt after every yield. State the exit condition as a shell command and pass it as `--until '<cmd>'`, which gates each iteration on that command's exit status.#
-s#Pick the wake mechanism using Cursor's `/loop` command \(a built-in, not a pstack skill\)\.#Pick the wake mechanism. In session, omp's `/loop [count|duration] [--while|--until '<cmd>'] [prompt]` re-submits the prompt after every yield and gates each iteration on a shell command's exit status. A wake that must land out of session runs under a `hub` supervised watcher or a systemd user timer.#
-s#A local root arms each tick as a real terminal `/loop`\. The loop uses a monitored-shell 30-minute sleep and emits an output-notification sentinel\.#A root in session arms each tick with omp's `/loop`, which re-submits the tick prompt after every yield.#
-s#A cloud root uses the existing cloud-sleeper wake chain instead\.#A wake that has to land out of session runs under a `hub` supervised watcher or a systemd user timer instead.#
-s#In a local session, a real terminal `/loop`\. In a cloud root, a cloud-sleeper wake chain\.#In session, omp's `/loop`. For a wake that must land out of session, a `hub` supervised watcher or a systemd user timer.#
-s#Run `drive` and `background` under `/loop` in dynamic mode\.#Run `drive` and `background` under omp's `/loop` while `loop.mode` is `prompt`, or under a `hub` supervised watcher when the wake must land out of session.#
-s#Hold the watch under `/loop` in dynamic mode\.#Hold the watch under omp's `/loop` while `loop.mode` is `prompt`, or under a `hub` supervised watcher when the wake must land out of session.#
-s#`/loop` per component until the diff is zero\.#Hold a `hub` watcher or a systemd timer per component until the diff is zero.#
-s#a frontier watcher wake \(arm it via the loop skill, with a long heartbeat fallback\)#a frontier watcher wake (hold it under a `hub` watcher or a systemd timer, with a long fallback heartbeat)#
+s#Drive a long or stubborn hunt with Cursor's `/loop` command\.#Drive a long or stubborn hunt with omp's `/loop`. Inspect its live help for the grammar and cadence it accepts before prescribing either, and state the exit condition as a shell command the loop can test.#
+s#Pick the wake mechanism using Cursor's `/loop` command \(a built-in, not a pstack skill\)\.#Pick the wake mechanism. In session, omp's `/loop` re-submits a prompt, and its live help decides the grammar and cadence. A wake that must land out of session needs an authenticated external trigger: launchd on macOS, or an available systemd user timer or cron on Linux, calling an explicit CLI or RPC entry point (`prompt`, `steer`, or `follow_up`) or an extension. A named `bash` service only observes work while the session exists and is not a scheduler.#
+s#A local root arms each tick as a real terminal `/loop`\. The loop uses a monitored-shell 30-minute sleep and emits an output-notification sentinel\.#A root in session arms each tick with omp's `/loop`, after reading its live help for the grammar and cadence it accepts.#
+s#A cloud root uses the existing cloud-sleeper wake chain instead\.#A wake that must land out of session needs an authenticated external trigger: launchd on macOS, or an available systemd user timer or cron on Linux, calling an explicit CLI or RPC entry point.#
+s#In a local session, a real terminal `/loop`\. In a cloud root, a cloud-sleeper wake chain\.#In session, omp's `/loop`, with its grammar and cadence read from its live help. A wake that must land out of session needs an authenticated external trigger such as launchd on macOS, or a systemd user timer or cron on Linux.#
+s#Run `drive` and `background` under `/loop` in dynamic mode\.#Run `drive` and `background` under omp's `/loop` when its live help shows it fits the cadence you need, or hold them in a named `bash` service that observes only while the session exists. A wake that must land out of session needs an authenticated external trigger calling an explicit CLI or RPC entry point.#
+s#Hold the watch under `/loop` in dynamic mode\.#Hold the watch under omp's `/loop` when its live help shows it fits the cadence you need, or in a named `bash` service that observes only while the session exists. A wake that must land out of session needs an authenticated external trigger calling an explicit CLI or RPC entry point.#
+s#`/loop` per component until the diff is zero\.#Hold a named `bash` service per component until the diff is zero, or re-check under omp's `/loop`.#
+s#a frontier watcher wake \(arm it via the loop skill, with a long heartbeat fallback\)#a frontier watcher wake (a named `bash` service while the session exists, with a long fallback heartbeat)#
 s#"/loop until X"#"run until X"#g
-# Cursor's `/goal` is on by default; omp ships it behind a settings gate.
-s#arm a `/goal` with the full program objective\.#arm a `/goal` with the full program objective. omp's `/goal` is native but gated, so turn on `goal.enabled` in settings first. Since 18.0.2 the tool registers lazily, so turning it on mid-session also works.#g
-s#arm a `/goal` with this exact text\.#arm a `/goal` with this exact text. omp's `/goal` is native but gated, so turn on `goal.enabled` in settings first. Since 18.0.2 the tool registers lazily, so turning it on mid-session also works.#
 
 ## 6. cursor-team-kit. Cursor's companion plugin -> omp's built-in tools.
 
@@ -155,17 +147,17 @@ s#arm a `/goal` with this exact text\.#arm a `/goal` with this exact text. omp's
 s#the `deslop` skill from the `cursor-team-kit` plugin \(`/deslop`\)#the `unslop` skill (`skill://unslop`) plus `omp cleanse --all` for diagnostics#g
 s#Run `/deslop` from `cursor-team-kit` over the diff before commit\.#Run the `unslop` skill (`skill://unslop`) plus `omp cleanse --all` over the diff before commit. A bare `omp cleanse` opens an interactive picker and blocks.#
 s#`/deslop`#the `unslop` skill (`skill://unslop`) plus `omp cleanse --all`#g
-# `control-ui` / `control-cli` -> `browser`, `computer`, and `hub` process ops plus bash.
-s#`control-ui` or `control-cli` runtime verification \(from `cursor-team-kit`\)#`browser` or `computer` for UIs, or `hub` process ops plus bash for CLIs and TUIs#
-s#\(`control-cli` or `control-ui` from `cursor-team-kit` as the change demands\)#(`browser` or `computer` for UIs, `hub` process ops plus bash for CLIs and TUIs, as the change demands)#
-s#\(`control-ui` or `control-cli` from `cursor-team-kit` as the change demands\)#(`browser` or `computer` for UIs, `hub` process ops plus bash for CLIs and TUIs, as the change demands)#
-s#Drive through `control-ui` or `control-cli` from `cursor-team-kit`\.#Drive through `browser` or `computer` for UIs, and `hub` process ops plus bash for CLIs and TUIs.#
-s#Browser, Electron, and web UIs use `control-ui` from `cursor-team-kit`\. CLIs and TUIs use `control-cli` from `cursor-team-kit`\.#Browser, Electron, and web UIs use the `browser` eval prelude, and native desktop UIs use `computer`. Both are code in an `eval` cell and not tools. CLIs and TUIs use `hub` process ops plus bash.#
-s#`cursor-team-kit` publishes `control-cli` \(CLIs and TUIs\) and `control-ui` \(browser / Electron / web UIs\)\.#omp provides the levers directly. `hub` process ops plus bash drive CLIs and TUIs, the `browser` eval prelude drives browser, Electron, and web UIs over CDP, and the `computer` prelude drives native desktop. Both preludes are code in an `eval` cell and neither is a tool with its own schema.#
+# `control-ui` / `control-cli` -> `browser`, `computer`, and `bash`.
+s#`control-ui` or `control-cli` runtime verification \(from `cursor-team-kit`\)#`browser` or `computer` for UIs, or `bash` for CLIs and TUIs#
+s#\(`control-cli` or `control-ui` from `cursor-team-kit` as the change demands\)#(`browser` or `computer` for UIs, `bash` for CLIs and TUIs, as the change demands)#
+s#\(`control-ui` or `control-cli` from `cursor-team-kit` as the change demands\)#(`browser` or `computer` for UIs, `bash` for CLIs and TUIs, as the change demands)#
+s#Drive through `control-ui` or `control-cli` from `cursor-team-kit`\.#Drive through `browser` or `computer` for UIs, and `bash` for CLIs and TUIs.#
+s#Browser, Electron, and web UIs use `control-ui` from `cursor-team-kit`\. CLIs and TUIs use `control-cli` from `cursor-team-kit`\.#Browser, Electron, and web UIs use the `browser` eval prelude, and native desktop UIs use `computer`. Both are code in an `eval` cell and not tools. CLIs and TUIs use `bash`, with a named service for a long-lived process.#
+s#`cursor-team-kit` publishes `control-cli` \(CLIs and TUIs\) and `control-ui` \(browser / Electron / web UIs\)\.#omp provides the levers directly. `bash` drives CLIs and TUIs, the `browser` eval prelude drives browser, Electron, and web UIs over CDP, and the `computer` prelude drives native desktop. Both preludes are code in an `eval` cell and neither is a tool with its own schema.#
 s#\*\*Control skill\.\*\* Pick it by surface\.#**Control surface.** Pick it by surface.#
 s#through the control skill's commands#through the control surface's own calls#
 s#`control-ui`#the `browser` eval prelude#g
-s#`control-cli`#`hub` process ops plus bash#g
+s#`control-cli`#`bash`#g
 s#`cursor-team-kit`#omp's built-in tools#g
 s#cursor-team-kit#omp's built-in tools#g
 
@@ -199,17 +191,17 @@ s#For each candidate, read the first JSONL line\. Take the file whose `message\.
 # Cursor's skill roots -> omp's workspace, user, and plugin skill roots.
 s#~/\.cursor/skills/#~/.omp/agent/skills/#g
 s#\.cursor/skills/#.omp/skills/#g
-s#, or plugin-installed paths under `~/\.cursor/plugins/`#, or plugin-installed paths under `~/.omp/plugins/node_modules/`#g
+s#, or plugin-installed paths under `~/\.cursor/plugins/`#, or plugin-installed skills through `skill://<name>`#g
 # Cursor's worktree path convention -> whatever path the local tool manages.
 s#misses one that lives at `\.cursor/worktrees/myrepo/x`#misses one that lives at a tool-managed path like `.worktrees/myrepo/x`#
 # Cursor's pinned-chat sidebar -> omp's live roster plus the session store.
-s#The pinned and active chats are the real artifact \(principle-prove-it-works\)\. Get that set from the user or sidebar and cross-check every candidate\. The lever has marked `safe` a worktree the user had pinned, so the pinned set wins\.#The live omp sessions are the real artifact (principle-prove-it-works). Get that set from `hub` `op: "list"` plus the session store at `~/.omp/agent/sessions/<encoded-cwd>/`, confirm it with the user, and cross-check every candidate. The lever has marked `safe` a worktree a live session still owned, so the live set wins.#
+s#The pinned and active chats are the real artifact \(principle-prove-it-works\)\. Get that set from the user or sidebar and cross-check every candidate\. The lever has marked `safe` a worktree the user had pinned, so the pinned set wins\.#The live omp sessions are the real artifact (principle-prove-it-works). Get that set from `read history://` (registered agents) and `read proc://` (visible jobs and running agents), plus the session store resolved per `skill://omp-mechanics/references/session-store-on-omp.md`, confirm it with the user, and cross-check every candidate. The lever has marked `safe` a worktree a live session still owned, so the live set wins.#
 s#report whether the chat is pinned or ongoing and which worktrees it touches#report whether the session is still live and which worktrees it touches#
-s#A pinned chat spawns arena and repro trees into sibling worktrees via background subagents, and those are in use even when their names never hit the sidebar\.#A live session spawns arena and repro trees into sibling worktrees via background subagents, and those are in use even when `hub` `op: "list"` never names them.#
+s#A pinned chat spawns arena and repro trees into sibling worktrees via background subagents, and those are in use even when their names never hit the sidebar\.#A live session spawns arena and repro trees into sibling worktrees via background subagents, and those are in use even when `read history://` never names them.#
 # Cursor exposes enabled MCP servers as a directory; omp lists them in one config file.
-s#Before spawning investigators, list the available MCPs from the Cursor environment\. Use the available-tools map when present\. Otherwise inspect the `mcps/` directory Cursor exposes for enabled MCP servers\.#Before spawning investigators, list the available MCPs from the session environment. Use the available-tools map when present. Otherwise read `~/.omp/agent/mcp.json` for enabled MCP servers.#
+s#Before spawning investigators, list the available MCPs from the Cursor environment\. Use the available-tools map when present\. Otherwise inspect the `mcps/` directory Cursor exposes for enabled MCP servers\.#Before spawning investigators, list the available MCPs from the live tool inventory and `/mcp list`. For servers that are not connected, follow the MCP discovery procedure in `skill://omp-mechanics`. The default user `mcp.json` is one source among several.#
 # Cursor resumes an idle agent to reach it; omp messages it and leaves it running.
-s#Agents are spawned, resumed, and drained only through the Task tool\.#Agents are spawned and drained only through the Task tool, and resumed only through `hub` messaging.#
+s#Agents are spawned, resumed, and drained only through the Task tool\.#Agents are spawned and drained only through the Task tool, and an idle one is revived only by a `write` to `agent://<returned-id>`.#
 # Bugbot is a Cursor product, so the rubric names what plays its part on omp.
 s#^Use this reference when the Babysit playbook \(`\.\./playbooks/babysit\.md`\) handles Bugbot or review-automation comments\.#Use this reference when the Babysit playbook (`../playbooks/babysit.md`) handles Bugbot or review-automation comments. Bugbot is Cursor's hosted review product, so without it this rubric applies to whatever review bot posts on your PRs, including omp's own `security-reviewer`.#
 # Net for any Cursor home path a later upstream commit introduces.
@@ -219,15 +211,21 @@ s#~/\.cursor/#~/.omp/#g
 ## Order is load-bearing: the trunk-read rewrites and the checklist append run before the
 ## generic pstack/skills/ rewrite, which is guarded so it cannot re-match its own output.
 
-# One product-repo line survives, so check-plan.mjs's `git show origin/main:` marker stays real.
-\%^  - \[ \] `git show origin/main:pstack/skills/<each other leaf skill the program uses>`$%a\
-  - [ ] `git show origin/main:<each skill or doc the product repo vendors itself>`
-s#re-read this playbook from trunk with `git show origin/main:pstack/#re-read this playbook from its install path, `~/.omp/plugins/node_modules/pstack/#g
-s#Re-read the execution playbook from trunk( and the armed /goal)?#Re-read the execution playbook from its install path\1#g
+s#re-read this playbook from trunk with `git show origin/main:pstack/skills/#re-read this playbook with `skill://#g
+s#Re-read the execution playbook from trunk( and the armed /goal)?#Re-read the execution playbook through its `skill://poteto-mode/playbooks/` URI\1#g
 s#`git show origin/main:<control skill path>`#the omp doc for the control surface, such as `omp://tools/browser.md`, remembering that `browser` and `computer` are eval preludes rather than tools#
-s#`git show origin/main:pstack/#`~/.omp/plugins/node_modules/pstack/#g
-s#([^/])pstack/skills/#\1~/.omp/plugins/node_modules/pstack/skills/#g
+s#`git show origin/main:pstack/skills/#`skill://#g
+s#`node pstack/skills/poteto-mode/scripts/check-plan\.mjs <plan\.md>`#`node <poteto-mode-dir>/scripts/check-plan.mjs <plan.md>`, after resolving `<poteto-mode-dir>` with `realpath skill://poteto-mode` as its own command#
+s#([^/])pstack/skills/#\1skill://#g
 # Cursor's npm scope for skill tooling -> the port's own scope.
 s#@cursor-skill/#@omp-skill/#g
 # Cursor auto-attaches a skill on a file-glob match; omp carries `globs` as metadata only.
 s#^paths: \[#globs: [#
+
+## 10. User-facing skill commands. Cursor's slash menu runs a skill as `/<name>`; omp runs a shipped skill as `/skill:<name>`.
+## `/poteto-mode` is the extension's own alias and stays, as do the runtime commands (`/model`, `/marketplace`, `/loop`, `/goal`).
+## The left boundary refuses a letter, `/`, `.`, `:`, `~`, `$`, or `-` before the slash, so a URL, a path, or a `skill://` URI is not a command.
+## The rule runs twice because each match consumes its right boundary, so two commands one space apart need a second pass.
+
+s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
+s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g

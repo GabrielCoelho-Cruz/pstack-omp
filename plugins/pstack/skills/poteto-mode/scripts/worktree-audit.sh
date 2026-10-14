@@ -68,18 +68,25 @@ printf "SIZE\tAGE\tMERGED\tDIRTY\tLOCKED\tINSPECT\tREMOTE\tPR\tBUCKET\tWORKTREE\
 printf '%s\n' "$worktree_records" | awk '/^worktree /{sub(/^worktree /, ""); print}' | while IFS= read -r wt; do
 	[ "$wt" = "$main_wt" ] && continue
 	inspect=ok
-	lock=$(printf '%s\n' "$worktree_records" | awk -v target="$wt" '
+	lock_record=$(printf '%s\n' "$worktree_records" | awk -v target="$wt" '
 		BEGIN { RS=""; FS="\n" }
 		$1 == "worktree " target {
 			for (i = 1; i <= NF; i++) {
 				if ($i ~ /^locked/) {
-					reason = substr($i, 8)
-					print reason == "" ? "yes" : reason
+					print "L" substr($i, 8)
 					exit
 				}
 			}
 		}')
-	[ -z "$lock" ] && lock="-"
+	is_locked=no
+	lock="-"
+	case "$lock_record" in
+		L*)
+			is_locked=yes
+			lock="${lock_record#L}"
+			[ -z "$lock" ] && lock="yes"
+			;;
+	esac
 
 	size=$(du -sh "$wt" 2>/dev/null | awk '{print $1}')
 	if ! head=$(git -C "$wt" rev-parse HEAD 2>/dev/null); then
@@ -115,13 +122,13 @@ printf '%s\n' "$worktree_records" | awk '/^worktree /{sub(/^worktree /, ""); pri
 	[ -z "$pr" ] && pr="-"
 
 	if [ "$inspect" != ok ]; then bucket=hold-error
-	else case "$lock" in -) ;; *) bucket=hold-locked ;; esac
-	if [ "$lock" = "-" ]; then case "$dirty" in error) bucket=hold-error ;; wip:*) bucket=hold-wip ;; *)
+	elif [ "$is_locked" = yes ]; then bucket=hold-locked
+	else case "$dirty" in error) bucket=hold-error ;; wip:*) bucket=hold-wip ;; *)
 		case "$pr" in *OPEN*) bucket=hold-open-pr ;; *)
 			if [ "$merged" = YES ] || [ "$pr" != "-" ]; then bucket=safe
 			else bucket=review; fi ;;
 		esac ;;
-	esac; fi; fi
+	esac; fi
 
 	printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
 		"$size" "$age" "$merged" "$dirty" "$lock" "$inspect" "$remote" "$pr" "$bucket" "$wt"

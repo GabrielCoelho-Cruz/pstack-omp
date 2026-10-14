@@ -1,6 +1,6 @@
 {
   "name": "pstack",
-  "version": "0.15.23",
+  "version": "0.15.24",
   "license": "MIT",
   "omp": {
     "extensions": [

@@ -6,10 +6,15 @@ before trusting this file after an upgrade.
 
 ## The root
 
-Resolved, not fixed. The default is `~/.omp/agent/sessions/`. `PI_CODING_AGENT_SESSION_DIR` and an
-explicit session-directory argument win, then `PI_CODING_AGENT_DIR` for the default profile, then
-the profile root under `PI_CONFIG_DIR`, then `XDG_DATA_HOME`, which redirects only when its `omp`
-root already exists. Resolve it once instead of hardcoding it.
+Resolved, not fixed. **Resolve the effective storage directory before any scan** and never assume
+`~/.omp/agent/sessions/`. The inputs, highest first, are the CLI `--session-dir` of the running
+process, the `PI_CODING_AGENT_SESSION_DIR` environment variable, `PI_CODING_AGENT_DIR` for the
+default profile, the active profile root (`--profile`, `OMP_PROFILE`, `PI_CONFIG_DIR`), and
+`XDG_DATA_HOME`, which redirects only when its `omp` root already exists. A named profile ignores
+`PI_CODING_AGENT_DIR` and sees only its own sessions. `omp config path` prints the agent directory in
+effect, and the live session's own transcript path is the most direct anchor when one is reported.
+Resolve once, then confirm by listing a real bucket. Stay inside the authorized workspace: scan only
+the bucket for the current project, never sibling buckets.
 
 ## The bucket name
 
@@ -65,9 +70,9 @@ material the previous agent could no longer see.
 
 ## Prefer the URIs
 
-For a prior agent in this process, the internal URIs beat globbing. Bare `history://` lists every
-agent with its status and its parent. `history://<id>` renders one transcript and takes line
-selectors, as in `history://<id>:1-50`. `agent://<id>` serves that agent's final output artifact,
-`agent://<parent>/<child>` a nested child's, and `agent://<id>?q=.<field>` one field of a structured
-result. Prefer `?q=` for a field, because the slash resolves a child agent first and only falls back
-to JSON extraction.
+For a prior agent in this process, the internal URIs beat globbing. Bare `history://` lists registered
+agents and transcripts with their status and parent. `history://<id>` renders one transcript and
+takes line selectors, as in `history://<id>:1-50`. `agent://<id>` serves that agent's final output
+artifact. A nested child's ID is dotted, so its output is `agent://Parent.Child`. A slash path is
+always JSON extraction, as in `agent://Parent.Child/reports/0/data`; there is no `?q=` form. Read
+`read proc://` for visible jobs and running agents. See [task](omp://tools/task.md).

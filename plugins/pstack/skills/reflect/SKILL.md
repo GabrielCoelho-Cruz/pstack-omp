@@ -7,35 +7,31 @@ description: Spawn three parallel review subagents over the active transcript, s
 
 Mine the current conversation for durable learnings, then route them into skill edits.
 
-Invoke when the user says "reflect" or "/reflect". Skip when the conversation is trivial, off-topic, or already covered by an existing skill the parent followed correctly. One-offs are not learnings.
+Invoke when the user says "reflect" or "/skill:reflect". Skip when the conversation is trivial, off-topic, or already covered by an existing skill the parent followed correctly. One-offs are not learnings.
 
 ## 1. Locate the active transcript
 
-Before fanning out, find this conversation's transcript in the `agent-transcripts/` directory the system prompt names. Do not glob across sibling `~/.omp/agent/sessions/<other-cwd>/` buckets. That crosses workspace boundaries and reads private chats from unrelated projects.
-
-```bash
-ls -t ~/.omp/agent/sessions/<encoded-cwd>/*.jsonl ~/.omp/agent/sessions/<encoded-cwd>/*/*.jsonl ~/.omp/agent/sessions/<encoded-cwd>/*/subagents/*.jsonl 2>/dev/null | head -10
-```
+Before fanning out, read `skill://omp-mechanics/references/session-store-on-omp.md` and resolve the active session root as it directs. Do not assume a default root, and stay inside the authorized workspace. Take the live session's own transcript path when the runtime reports one. Otherwise scan only the bucket for the current project under the resolved root. Do not glob sibling project buckets. That crosses workspace boundaries and reads private chats from unrelated projects.
 
 omp writes one layout: a flat `<timestamp>_<session-id>.jsonl` per session in the bucket, with `<AgentId>.jsonl` sidecars in the sibling directory named for that stem. The first line of an omp transcript is a fixed-width `type:title` slot and the second a `type:session` header, neither of them a message. Take the file whose first `type:message` line with `role:user` contains the conversation's opening user prompt. If none matches, pass a tight digest of the session instead.
 
 ## 2. Spawn three reviewers in parallel
 
-One `task` call with three items in `tasks[]`, each `agent`: `task` (omp's general-purpose bundled agent) pinned by its own agent name, full tools per spawn. Run the three lenses on three different model families where `omp models` offers them, and keep Divergent on a different model family from Judgment, since the lens earns its name from different priors and not a different prompt. Reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references. omp's task wire has no `readonly` field, so nothing strips them.
+Spawn the three reviewers together through `skill://pstack-omp`, in the batch or flat shape the live `task` schema accepts, each on its own exact agent below. Setup's model choices reach each spawn through that agent, as described in `skill://omp-mechanics/references/setup-pstack-config.md`. Every spawn keeps the runtime's normal tools, because reviewers need MCP access to look up the tickets, chat threads, and observability traces the transcript references. Read-only posture is stated in each brief and is not a sandbox. Each brief tells the reviewer to start no subagents and to finish through `yield` with its findings. Every task item carries a `solutionSpace`.
 
-Each reviewer and the synthesizer name a role line in `task.agentModelOverrides` in `~/.omp/agent/config.yml` and a default. Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message.
+| Lens | `agent` | Prompt template |
+|---|---|---|
+| Judgment | `pstack_judgment` | `references/judgment-reviewer.md` |
+| Tooling | `pstack_fast` | `references/tooling-reviewer.md` |
+| Divergent | `pstack_panel_2` | `references/divergent-reviewer.md` |
 
-| Lens | Role line | Default `model` | Prompt template |
-|---|---|---|---|
-| Judgment | `reflect judgment, divergent, synthesizer` | your strongest judgment model | `references/judgment-reviewer.md` |
-| Tooling | `reflect tooling` | your fast code model | `references/tooling-reviewer.md` |
-| Divergent | `reflect judgment, divergent, synthesizer` | your strongest judgment model | `references/divergent-reviewer.md` |
+Configured Divergent should be a different model family from Judgment. After the reviewers return, compare their returned resolved models and fallback flags. When Divergent and Judgment ran on the same model, or the metadata cannot show a difference, say so in the report. Never assume diversity. If discovery blocks an agent name, report the unavailable configured route. Never fall back to the generic worker and claim setup took effect.
 
 Pass each template verbatim, substituting the transcript path or digest where marked. Reviewers return findings in the `Task` response body.
 
 ## 3. Synthesize
 
-One `Task` call, `agent`: `task` (omp's general-purpose bundled agent), `model` from the `reflect judgment, divergent, synthesizer` line (default your strongest judgment model), full tools per spawn. It spot-verifies citations through MCP. omp's task wire has no `readonly` field, so nothing strips them. Pass `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. It returns an Accepted / Rejected / Backlog list.
+One task item on `pstack_judgment`, with a `solutionSpace` and the runtime's normal tools so it can spot-verify citations through MCP. Its brief states read-only posture, no subagents, and finishing through `yield`. Pass `references/synthesizer.md` verbatim, with each reviewer's full output inlined where marked. It returns an Accepted / Rejected / Backlog list.
 
 ## 4. Structural enforcement check
 
@@ -50,11 +46,11 @@ File each Backlog item to your team's devex or backlog tracker without waiting. 
 Follow each approved row's Routing exactly:
 
 - Trivial existing-skill edit (a one-line bullet, a tightened sentence, a stale fact corrected): the parent does it directly.
-- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): hand to the `authoring-a-skill` playbook and run its draft / test / iterate loop.
-- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): hand to the `authoring-a-skill` playbook and run its description-optimization loop.
-- `new skill via authoring-a-skill: <kebab-name>`: hand creation to the `authoring-a-skill` playbook. Do not invent the shape ad hoc.
+- Substantive existing-skill edit (a new section, a new pattern table, more than ~10 lines): read `skill://poteto-mode/playbooks/authoring-a-skill.md` and run its draft / test / iterate loop.
+- `tune description: <skill path>` (the skill exists but didn't trigger when it should have): read `skill://poteto-mode/playbooks/authoring-a-skill.md` and run its description-optimization loop.
+- `new skill via authoring-a-skill: <kebab-name>`: read `skill://poteto-mode/playbooks/authoring-a-skill.md` and create the skill through it. Do not invent the shape ad hoc.
 
-If your environment ships a SKILL.md validator, run it on every touched skill before declaring done.
+Run the playbook's check step on every touched skill, and any SKILL.md validator your environment ships, before declaring done.
 
 ## 6. Summarize for the user
 

@@ -19,27 +19,44 @@ The port preserves its runtime adapters through `omp-port/owned.txt`. Read
 These hold for every `task` spawn any pstack skill asks for. `references/task-wire-on-omp.md` holds
 the item shape, the per-agent lever table, the isolation lifecycle, and the budgets.
 
-- **No `model` field.** The `task` tool takes no per-call model. Four settings records in
-  `~/.omp/agent/config.yml` carry model, service tier, prewalk, and advisor, all keyed by exact
-  agent name, and a record entry beats the agent file's frontmatter. They are
-  `task.agentModelOverrides`, whose value may be a `@role` alias the operator binds in
-  `modelRoles`, `task.agentServiceTierOverrides`, `task.agentPrewalk`, and `task.agentAdvisor`. A
-  role with no entry runs on the parent chat model, which is the correct default. A role that needs
-  its own model needs its own thin agent file plus its own entry, so a four-arm model race is four
-  agent files. `inherit-parent` and `auto` mean "leave this role out of the map".
+- **No `model` field.** The `task` tool takes no per-call model. A model is routed by exact agent
+  name: `task.agentModelOverrides[agentName] = concreteSelector`. pstack ships six model-free agents,
+  `pstack_fast`, `pstack_judgment`, and `pstack_panel_1` to `pstack_panel_4`, and a routed skill
+  selects one through the item's `agent` field. A settings override beats the agent file's
+  frontmatter, which beats the parent or configured task fallback, so an agent with no entry runs on
+  the parent's model. That is the correct default and needs no configuration. A choice to inherit
+  removes the key. The key set, value format, and panel rules live in
+  `references/setup-pstack-config.md`. Service-tier, prewalk, and advisor records are the
+  operator's, not pstack's.
+- **Required fields.** Every item needs `task` and `solutionSpace`. `solutionSpace` says how open the
+  child's problem is, such as `one fix: rename, names given`. Work volume does not widen it. `name`
+  and `agent` are optional, and omitting `agent` runs the default worker. A named item needs a
+  unique `name`, compared case-insensitively.
 - **No `readonly` field.** A read-only worker is posture carried in the brief, never a wire field.
   Name the tools the worker may use and forbid writes. The per-item `tools` field exposes only
   kernel tools the parent defined in an `eval` cell with `@tool` or `tool(fn, …)`, gated by
   `eval.tools.enabled`, so it is not a tool grant. The one per-spawn restriction omp enforces is
-  `tools` in an agent's frontmatter, which binds to an agent definition and not to a task call, and
-  even there omp keeps `hub` and adds `yield` regardless of what the list says.
-- **One call, many items.** Every parallel spawn goes in one `task` call with all items in
-  `tasks[]`. `context` is required and is rendered into every spawn's system prompt, so the shared
-  contract goes there once instead of per item. `task.maxConcurrency` caps how many run at once.
-  Eval holds the second fan-out primitive. `workpool()` queues items onto keep-alive workers and
-  `agent()` returns a handle, both under the same cap, and a pool's name is its async job id, so
-  poll it from outside the cell with `hub` `op: "wait"` and `ids: [pool.name]`. There is no
-  `pool.wait()`. Unlike a task item, eval's `agent()` takes `apply` and `merge`.
+  `tools` in an agent's frontmatter, which binds to an agent definition and not to a task call. An
+  explicit list gains `yield`, which a child finishes through, and gains `wait` when it contains
+  `task` or `bash`. The shipped routing agents declare no `tools`, so they keep the runtime's normal
+  tool set, MCPs included, and are not read-only sandboxes.
+- **Batch, flat, and background.** `task.batch` controls the shape. With it on, independent spawns
+  go in one call as `{ context, tasks[] }`, and `context` is required and rendered into every
+  spawn's system prompt, so the shared contract goes there once. With it off, a call is one flat
+  spawn, `tasks` and `context` are rejected, shared background goes in a `local://` file, and all
+  independent spawns are started before any wait. `async.enabled` controls ordinary background
+  execution: on, a spawn returns job and agent IDs and its result auto-delivers; off, the call
+  blocks. A custom agent with `blocking: true` runs inline in either case.
+- **Three different limits.** `task.maxConcurrency` bounds task's session-wide semaphore, which is
+  resized live from the setting and covers every task spawn, inline or background, across calls.
+  Each eval `workpool()` separately caps its own live workers at that same setting. Eval's
+  `agent()` takes no concurrency slot and instead counts against the session-wide `async.maxJobs`
+  cap that every background job shares, including async `bash`, async `task`, pools, and nested
+  jobs. Unlike a task item, eval's `agent()` takes `apply` and `merge`.
+- **Eval barriers.** `agent()` returns a handle and eval's `wait(handles)` returns results in input
+  order, which is a different thing from the zero-argument `wait` tool. A pool's name is its
+  aggregate job id, and there is no `pool.wait()`. Leave eval, let results auto-deliver, and call the
+  `wait` tool only when blocked.
 - **`effort` is gated.** The per-spawn `effort` field is `"lo"`, `"med"`, or `"hi"`, it reaches the
   schema only while `task.enableEffort` is true, which is off by default, and `task.maxEffort` caps
   it. Check `omp config list | grep task.enableEffort` before a brief depends on it.
@@ -59,50 +76,57 @@ the item shape, the per-agent lever table, the isolation lifecycle, and the budg
   siblings. It does inherit the workspace tree, the skills, the context files, and the parent's
   `local://` root, so a large shared payload goes to `local://<name>.md` and the brief names that
   path. Otherwise inline what it needs or point at absolute paths.
-- **Yield first.** End every brief with a yield-first line. Tell the worker to call the yield tool
-  with its result as `data`, or a failure as `error`, both top-level arguments, and to write no text
-  outside that call. Thinking models default to answering in prose and skipping the call, which
-  costs three reminder prompts and then a `SYSTEM WARNING` with no structured output. Measured 13 of
-  20 without the line, 20 of 20 with it, same model, same width. A reviewer that accumulates
-  findings passes a non-empty `type` array to submit each as an incremental section, then a `type`
-  string to finalize, which is what replaced the removed `report_finding` tool.
+- **Yield first.** End every brief with a yield-first line. A child must finish through the `yield`
+  tool with its result or its failure and write no text outside that call. Thinking models can
+  default to answering in prose, which costs up to three reminder prompts and then a `SYSTEM
+  WARNING` with no structured output. Historical observation, one model and one batch width, not a
+  rate: 13 of 20 workers yielded without the line and 20 of 20 with it.
 - **Budgets stop a long worker.** `task.softRequestBudget`, default 200 assistant requests, warns
   on crossing and force-stops the run at 1.5 times the budget. `task.maxRuntimeMs` is a hard
   per-spawn wall clock in milliseconds, 0 disabled. Brief a long worker to yield partial findings.
-- **Reaching a running agent.** `hub` `op: "list"` and `op: "jobs"` are the read-only probes, and
-  they cover this omp process's whole agent tree rather than one project. `op: "list"` returns
-  running and idle peers plus counts, so parked archaeology needs `status: "parked"`. An `idle`
-  agent parks after `task.agentIdleTtlMs`. A direct `op: "send"` revives a parked peer and a
-  broadcast does not. An isolated agent ends parked with no reviver, so only its transcript
-  survives. `op: "wait"` blocks, so never call it inside an agent that still owes its parent a
-  turn. A finished agent's output artifact is at `agent://<id>`, a nested child's at
-  `agent://<parent>/<child>`, one field at `agent://<id>?q=.<field>`, and the transcript at
-  `history://<id>`. Job rows expire about five minutes after settling, and reading a settled one
-  consumes its automatic delivery, so address the agent by id after that.
-- **Proving a claim.** Run the check under `hub` `op: "start"`, wait on it with `op: "wait"` and a
-  `name`, read the output with `op: "logs"`. That wait takes `timeout` in seconds. The message and
-  job wait is the other one and takes `timeoutMs`. Supplying both `ready.log` and `ready.port`
-  requires both to pass. Every pattern field here is a JavaScript regex compiled with `u`, so
-  `(?i)` is rejected and `[Rr]eady` is the spelling. A readiness timeout leaves the process running
-  and reports its state rather than killing it, so read the logs before calling it a fail. Nothing
-  notifies the session when a supervised process exits. Non-zero exit is a fail.
+- **Reaching a running agent.** `read history://` lists registered agents and transcripts. `read
+  proc://` lists visible jobs, running agents that have no job row, and project services, and one
+  `read proc://<returned-job-id>` reads a status without consuming its automatic delivery. Messages
+  self-deliver, and there is no inbox-drain tool. To message an agent, `write` to
+  `agent://<returned-id>`; use `agent://all` only for an intentional broadcast. An `idle` agent
+  parks after `task.agentIdleTtlMs`, and a direct message revives a parked agent in-process. A
+  kept-alive isolated agent retains its workspace through idle and parked states and revives the same
+  way. Releasing it captures the final changes and cleans the workspace, and a hard abort is
+  terminal. After a host restart isolated children cannot be cold-revived: reconcile the durable
+  artifacts and dispatch replacement work. The `wait` tool takes no arguments and returns on the
+  first owned result, message, or interrupt, so use it only when blocked and never inside an agent
+  that still owes its parent a turn. Account for every required result separately. A finished
+  agent's output is `agent://<id>`, a nested child's is `agent://Parent.Child`, structured data is
+  `agent://Parent.Child/reports/0/data`, and the transcript is `history://<id>`.
+- **Proving a claim.** Run a finite check with ordinary `bash`. Use `async: true` only when exposed,
+  keep in mind that backgrounding retains the command deadline, use `timeout: 0` only when
+  intentionally unbounded, and record the returned job ID. A long-lived process is a named `bash`
+  service: a project-unique `name`, the `command`, an optional `cwd`, and `ready`, with no `async`
+  and no supplied `timeout`. When both `ready.log` and `ready.port` are given, both must pass. Read
+  its status and logs with `read proc://<service-name>`, send stdin with `write
+  proc://<service-name>` (empty input is allowed), change its mode with `write
+  proc://<name>/mode` set to `persist`, `session`, or `detached`, and stop or cancel with `write
+  proc://<id>/kill` and no content. A service exit notifies the session. A non-zero exit is a fail.
 
 ## architect, arena, interrogate, reflect
 
-These workflows need independent contexts and benefit from different model priors. Resolve roles
-through `skill://pstack-omp`; never require extra agent files or operator configuration changes.
-Use configured model diversity when available and record resolved-model/fallback evidence.
-When only one family is available, keep the independent participant count and report weaker
-model diversity. When independent execution itself is unavailable, report the blocked gate.
+These workflows need independent contexts and benefit from different model priors. They route
+through the shipped `pstack_panel_<n>` agents via `skill://pstack-omp`, which holds the panel rules.
+A routed workflow requires its exact agent, so a blocked name is reported as an unavailable
+configured route rather than replaced by a generic worker. Record resolved-model and fallback
+evidence from the results. When fewer than two slots are configured the panel still runs two
+independent contexts on the inherited model and says that model diversity is weaker. When
+independent execution itself is unavailable, report the blocked gate.
 - **arena** Phase C and **interrogate**: the judge's and reviewers' read-only grant is posture per
-  **Every task call**, not a sandbox.
-- **reflect** step 3: keep Divergent on a different family from Judgment. The lens earns its name
-  from different priors, not a different prompt.
-- **interrogate** step 2: Reviewer A with no override entry runs on the parent chat model, which is
-  the case where the family spread collapses first.
-- A retry can move a slot off the model its entry named, because `retry.fallbackChains` is keyed by
-  the same role names and an aliased spawn inherits that role's chain instead of `default`. Record
-  the model each arm actually ran on. `task.showResolvedModelBadge` prints it in the task widget.
+  **Every task call**, not a sandbox. Arena runs one cross-judge after candidates freeze.
+- **reflect** step 3: keep Divergent on a different family from Judgment when configuration allows.
+  Divergent runs on `pstack_panel_2` and Judgment on `pstack_judgment`. The lens earns its name from
+  different priors, not a different prompt, so report it when the two resolved to the same model.
+- **interrogate** step 2: a panel slot with no override inherits the parent model, which is the case
+  where the family spread collapses first.
+- A retry can move a spawn off the model its entry named, because retry fallback chains and
+  extension routing hooks can change the final model. Record the model each arm actually ran on.
+  `task.showResolvedModelBadge` prints it in the task widget.
 
 ## bug-fix
 
@@ -119,14 +143,16 @@ Fall back to logging only when the tool is off or the runtime has no adapter.
 ## feature
 
 Amends step 5. Run the typecheck and lint lane with `lsp` action `diagnostics` alongside the test
-lane, and require the new code clean before the surface check. `file` set to `"*"` is not a
-whole-workspace sweep. It runs one external checker for the first project type it matches, in the
-order Rust, TypeScript, Go, Python, caps its output at the first 50 lines, and spawns nothing at all
-for a project type it does not recognise. So name concrete files or a glob when the change spans
-languages, and cap a glob at 20 files. A server failure is softened rather than fatal, so a clean
-result means nothing was reported and not that nothing is wrong. Confirm a server is live with
-action `status` before treating clean as proof. With `lsp.enabled` off, fall back to the project's
-own typecheck and lint commands.
+lane, and require the new code clean before the surface check. Workspace diagnostics (`file: "*"`)
+run a checker for every detected supported language, at most two concurrently, and cap each
+language's output at 50 lines. They report a total server failure explicitly, and a non-zero empty
+checker result is reported as not verified. A partial failure still lets the other checkers report,
+so a clean section covers only the languages that were actually checked. The supported project
+types are limited to what the tool detects (Rust, TypeScript, Go, Python); a clean result is not
+proof for any language it did not check. For a targeted server diagnostic, name concrete files, or
+a glob capped at 20 files, and confirm a server is live with action `status`. With `lsp.enabled`
+off, or for a language the tool does not check, fall back to the project's own typecheck and lint
+commands.
 
 ## refactoring
 
@@ -148,15 +174,18 @@ this skill depends on.
 
 For a long open-ended item stream, eval's `workpool()` beats a fixed `tasks[]` array. It queues
 items onto keep-alive workers, `eval.workpool.freshAgents` opts into a new agent per item, and the
-pool name doubles as the async job id you pass to `hub` `op: "wait"`. A fixed coverage matrix stays
-one `task` call.
+pool name is its aggregate job id. Leave eval and let the result auto-deliver; use the `wait` tool
+only when blocked. A fixed coverage matrix stays one `task` call.
 
 ## multi-phase-plan
 
-The plan template's read list points at the install path, `~/.omp/plugins/node_modules/pstack/`,
-because the skill is installed here and not vendored in the product repo. One `git show
-origin/main:` line stays in the list for docs the product repo vendors itself, which is also what
-`scripts/check-plan.mjs` looks for.
+The plan template's read list points at loaded skill locations as `skill://<name>/...`, not an
+install path, because the skill is loaded from wherever the host put it. `scripts/check-plan.mjs`
+requires three markers in a generated plan: the execution playbook URI
+`skill://poteto-mode/playbooks/`, the words `audit tick`, and the words `status message`. Its live-lane
+marker names an actual agent in backticks, never a guessed model selector. The plan must not invent
+a product-repository file or an hourly `/loop` API to satisfy the checker. The verification-box
+checks stay intact.
 
 For the control-surface line, the omp doc for that surface is the artifact to read, such as
 `omp://tools/browser.md`. Read **Control surfaces** below before writing the line, because the
@@ -168,10 +197,14 @@ The root starts every participant through `skill://pstack-omp`. Track owners ret
 the root to dispatch; ordinary children never spawn children. Concurrency and isolation depend
 on the live schema and runtime, not on a fixed nesting depth.
 
-`hub` messaging reaches this omp process's agent tree and nothing outside it. `send`, `wait`, and
-`inbox` are the sanctioned coordination primitives. `collab.autoStart` and `omp collab link` host a
-session for a human to watch or drive, which is not an agent-to-agent channel and gives a
-coordinator no way to reach another session's workers.
+Coordinate with the live operations in `skill://pstack-omp`. The Agent Hub is a human-facing view and
+not a tool. `write` to `agent://<returned-id>` sends a message and `agent://all` is for an
+intentional broadcast. `read history://` lists registered agents and transcripts, `read proc://` lists
+jobs, running agents without a job row, and services, and messages self-deliver with no inbox to
+drain. The `wait` tool takes no arguments and is for when the root is blocked. These reach this omp
+process's agent tree and nothing outside it. `collab.autoStart` and `omp collab link` host a session
+for a human to watch or drive, which is not an agent-to-agent channel and gives a coordinator no way
+to reach another session's workers. The root, not an owner, accepts and merges.
 
 ## Control surfaces
 
@@ -192,8 +225,9 @@ a verification claim resting on one cites the cell's own output as its evidence.
 
 ## make-bot-ui
 
-Half of this skill is a Grok Bot mechanic with no counterpart here. Read
-`references/make-bot-ui-on-omp.md` before starting, and never stand up a webhook routine on omp.
+Creating, storing, and waking a Grok routine has no counterpart here, and serving an ordinary page
+does. Read `references/make-bot-ui-on-omp.md` before starting, and never stand up a webhook
+routine on omp.
 
 ## typescript-best-practices
 
@@ -202,32 +236,49 @@ omp carries `globs` as skill metadata and does not auto-attach a skill on a file
 
 ## setup-pstack
 
-The file this skill writes is `~/.omp/agent/config.yml`, not a Cursor rule file. The example block
-in step 5 is the role-to-capability table, not the file format. `references/setup-pstack-config.md`
-holds the omp shape, the four capabilities, and the one-agent-file-per-slot rule.
+Setup writes `task.agentModelOverrides`, and nothing else, in the effective user configuration, not
+a Cursor rule file. `references/setup-pstack-config.md` holds the routing contract, the six owned
+keys, the value format, the file that is edited, and the panel rules. The skill's example block is
+the role-to-capability table, not the file format.
 
-`omp config get task.agentModelOverrides` prints the current map. `omp models` lists the machine's
-models, and step 1 must group them by family and count the families, because the review roles are
-defined by family difference.
+`omp models --json` lists the machine's selectors with supported thinking levels, and step 1 must
+group them by family and count the families, because the review roles are defined by family
+difference. `omp config get task.agentModelOverrides --json` prints the persisted map, but overlays
+and runtime overrides can outrank it. Setup neither changes the active chat model nor requires a
+restart for later task launches.
 
-A real slug belongs in `modelRoles` and nowhere else, so a provider rename touches one line in the
-operator's config and no skill at all.
+## MCP discovery
+
+Several skills and standalone workflows need to know which MCP servers exist. Do not assume one file.
+
+1. Start from the live tool inventory: the MCP tools actually exposed in this session are the ground
+   truth for what can be called now.
+2. Run `/mcp list`, which shows each server and the config file it came from.
+3. For servers that are not connected, read the effective configuration: project `.omp/mcp.json`,
+   the active profile's user `mcp.json`, plugin and extension-package servers, and the imported
+   Claude Code, Codex, Gemini CLI, OpenCode, Cursor, Windsurf, and VS Code sources. Honor
+   `mcp.enableProjectConfig`, which can exclude every project-level source, and the user
+   `disabledServers` and `enabledServers` lists. The default user file is one source among several.
+
+See [MCP configuration](omp://mcp-config.md). Report the source path for any server a conclusion
+rests on, and report a discovered-but-disabled server as disabled rather than absent.
 
 ## recall, reflect, eval, session-pickup, show-me-your-work, automate-me
 
 All five read the session store. `references/session-store-on-omp.md` holds the layout. Four facts
 decide whether a glob finds anything.
 
-- The root is resolved, not fixed. It defaults to `~/.omp/agent/sessions/`, and a named profile,
-  `PI_CODING_AGENT_DIR`, or `XDG_DATA_HOME` can move it. Resolve it before globbing.
+- The root is resolved, not fixed. Resolve the effective session directory first, honoring the CLI
+  `--session-dir`, the profile, the environment, and XDG relocation, before globbing.
 - The bucket is the canonicalized cwd with each `/` rewritten to `-`, which leaves a leading
   hyphen for a path under `$HOME`, so `~/Desktop/proj` is the directory `-Desktop-proj`. Stay
-  inside your own bucket. Globbing sibling buckets reads private sessions from unrelated projects.
+  inside your own bucket and the authorized workspace. Globbing sibling buckets reads private
+  sessions from unrelated projects.
 - A transcript's first line is a fixed-width `type:title` slot and not a message, and persisted
   roles are camelCase, so the spelling is `toolResult` rather than `tool_result`.
-- For an agent in this process, skip the glob. Bare `history://` lists every agent with its status
-  and its parent, `history://<id>:1-50` pages one transcript, and `agent://<id>` serves that
-  agent's final output.
+- For an agent in this process, skip the glob. Bare `history://` lists registered agents and
+  transcripts, `history://<id>:1-50` pages one transcript, and `agent://<id>` serves that agent's
+  final output. A nested child's ID is dotted, as in `agent://Parent.Child`.
 
 ## Upstream text that does not apply here
 

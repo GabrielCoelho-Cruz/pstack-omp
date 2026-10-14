@@ -1,6 +1,16 @@
-# Paths under plugins/pstack the port owns outright, one per line. The build deletes
-# plugins/pstack/{skills,agents} and reinstalls them from upstream, then restores every path
-# listed here from HEAD. A path here is never produced by rules.sed or omp-port/patches, so it
-# survives a sync unchanged and an edit to it is a real commit rather than a rewrite rule.
+# Paths under plugins/pstack the port owns outright, one per line. build_tree makes the generated
+# skills and agents in scratch, and prepare_tree then restores every path listed here into that
+# scratch tree. An owned path is read from the current worktree, so an edit that is not committed
+# yet survives the build, and from HEAD only when the worktree lacks it. A path missing from both
+# stops the build. A path here is never produced by rules.sed or omp-port/patches, so it survives
+# a sync unchanged and an edit to it is a real commit rather than a rewrite rule.
+#
+# agents-extra holds the routing agent definitions. prepare_tree copies exactly the routing
+# agents from it into the generated agents/ directory, and agents/ itself is never owned.
 skills/omp-mechanics
 skills/pstack-omp
+agents-extra
+extensions
+README.md
+LICENSE
+THIRD_PARTY_NOTICES.md

@@ -1,21 +1,13 @@
-// potetomode: reproduces Cursor's "Custom Mode" pin for pstack's /poteto-mode.
+// potetomode: the persistent pin for pstack's /poteto-mode.
 //
-// Cursor pins a skill via `mode: true` + `reminder:` in SKILL.md frontmatter, so the agent gets
-// re-reminded on every new turn. omp does not model either key (grep of src/capability/skill.ts and
-// src/extensibility/skills.ts: no hits), so the pin is the ONE mechanically missing piece of pstack
-// on omp. Everything else in pstack is portable prose, installed by symlink into
-// ~/.omp/agent/skills/ (verified: skill://<name> resolves with no --plugin-dir).
-//
-// Pattern copied from the working reference ~/.omp/agent/extensions/ponytail/index.js:
-//   pi.appendEntry(...)                persist across turns without spending context
-//   session_start + getBranch()        restore the pin when a session resumes
-//   before_agent_start -> systemPrompt inject the reminder every run
-//   pi.registerCommand(...)            /poteto-mode as a slash command
-//   c.ui.setStatus(...)                live status bar pill/indicator
-
+// omp skills have no frontmatter that re-reminds the agent every turn, so this extension holds the
+// pin. The pin state lives in "poteto-mode" custom session entries and is rebuilt from the active
+// branch on session start, branch switches, and tree navigation. With no entry on the branch, the
+// `--poteto` flag decides. The reminder is appended to the system prompt on each agent run; it is
+// not a hidden-skill override and does not change what the skills themselves expose.
 const ENTRY = "poteto-mode";
 
-// Mirrors the `reminder:` field in pstack's skills/poteto-mode/SKILL.md frontmatter.
+// Text injected into the system prompt while the pin is active.
 const REMINDER =
   "poteto-mode is PINNED for this session.\n" +
   "Before acting on a new task: read `skill://poteto-mode` in full (including its Principles index), " +
@@ -57,11 +49,9 @@ export default function potetomode(pi) {
   };
 
   const restore = (entries) => {
-    // Latest entry wins; scan backwards so an unpin later in the session sticks.
+    // Latest entry on the branch wins; scan backwards so a later unpin sticks.
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i];
-      // appendEntry persists {type:"custom",customType,data}; same predicate omp
-      // uses to replay its own pins (src/session/mode-skills.ts:42).
       if (e?.type === "custom" && e?.customType === ENTRY) return e.data?.pinned === true;
     }
     return undefined;
@@ -87,7 +77,7 @@ export default function potetomode(pi) {
       }
       if (arg === "off" || arg === "unpin") return setPinned(false, ctx);
       setPinned(true, ctx);
-      // A bare `/poteto-mode <task>` should also start the work, matching Cursor's ergonomics.
+      // A bare `/poteto-mode <task>` pins and also starts the work.
       const rest = args.trim();
       if (rest && !["on", "off", "pin", "unpin", "status"].includes(rest.toLowerCase())) {
         pi.sendUserMessage(rest, ctx?.isIdle?.() === false ? { deliverAs: "followUp" } : undefined);
@@ -95,26 +85,31 @@ export default function potetomode(pi) {
     },
   });
 
-  // Print mode (`-p`) has no slash dispatch, so the flag is the only way a
-  // headless run or subagent can start pinned.
+  // Print mode (`-p`) has no slash dispatch, so the flag is how a headless run starts pinned.
   pi.registerFlag("poteto", {
     description: "Pin pstack's poteto-mode for this run (works in -p print mode)",
     type: "boolean",
   });
 
-  // alt+shift+t is free in omp's keybinding registry (src/config/keybindings.ts,
-  // packages/tui/src/keybindings.ts) and not in runner.ts's reserved list.
+  // Alt+Shift+T toggles the pin.
   pi.registerShortcut("alt+shift+t", {
     description: "Toggle poteto-mode pin",
     handler: (ctx) => setPinned(!pinned, ctx),
   });
 
-  pi.on("session_start", async (_event, ctx) => {
-    const entries = ctx.sessionManager.getBranch();
-    pinned = restore(entries) ?? pi.getFlag?.("poteto") === true;
-    isActive = false;
+  const reconstruct = (ctx) => {
+    pinned = restore(ctx.sessionManager.getBranch()) ?? pi.getFlag?.("poteto") === true;
     syncStatus(ctx);
+  };
+
+  pi.on("session_start", async (_event, ctx) => {
+    isActive = false;
+    reconstruct(ctx);
   });
+
+  // Navigation changes which entries are on the active branch, not whether an agent is running.
+  pi.on("session_branch", async (_event, ctx) => reconstruct(ctx));
+  pi.on("session_tree", async (_event, ctx) => reconstruct(ctx));
 
   pi.on("agent_start", async (_event, ctx) => {
     isActive = true;
@@ -128,8 +123,8 @@ export default function potetomode(pi) {
 
   pi.on("before_agent_start", async (event) => {
     if (!pinned) return;
-    // systemPrompt is an ordered block list; interpolating it comma-joins the
-    // blocks and collapses the provider's cache segmentation.
+    // systemPrompt is an ordered block list; append a block rather than joining the list into a
+    // string, which would collapse the provider's cache segmentation.
     return { systemPrompt: [...event.systemPrompt, REMINDER] };
   });
 }
