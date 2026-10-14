@@ -25,8 +25,10 @@
 #       Rebuilds at the current pin and keeps the version. Uncommitted build output is what it
 #       replaces, so unlike a sync it does not refuse a dirty tree.
 #   bash omp-port/sync-upstream.sh recover
-#       Finishes or undoes an installation that a kill interrupted. Every mode that installs does
-#       this first, so the command exists to do it deliberately.
+#       Finishes or undoes an installation that a kill interrupted. An interrupted replacement is
+#       rolled back. A finished replacement whose staging failed is staged again, at the same
+#       version, without a build. Every mode that installs does this first, so the command exists
+#       to do it deliberately.
 #
 # The port version is its own stable counter, kept in plugins/pstack/package.json. It is a plain
 # MAJOR.MINOR.PATCH, written to the package, the catalog metadata, and both catalog plugin entries.
@@ -39,6 +41,11 @@
 # paths is not one atomic operation, so a kill that cannot be trapped leaves its backups and a
 # marker behind in the git directory, and the next invocation restores the previous installation
 # before it looks at anything else. Changes are staged in git only after the replacement committed.
+# If that staging fails, the committed transaction is kept, and recover stages it and removes it
+# only after staging succeeds. Every mode except check runs under an exclusive lock on
+# <git-dir>/pstack-port.lock, taken before recovery and held until the run exits. A second run
+# fails at once without touching the first one's transaction, and the kernel drops the lock if
+# the holder is killed.
 #
 # Exit 0 clean, 1 failure, including a patch that no longer applies.
 # Override the canonical checkout location with CANON=/path.
@@ -138,32 +145,62 @@ check_catalog_versions() {
 # Put the old installation back. The state is read off what exists, so this is safe to run again
 # after it was itself interrupted. bak.plugin means the live plugin directory, if there is one, is
 # the new one. bak.done means the catalog and pin copies are complete and the live ones may be the
-# new ones. committed means all three were replaced, so the backups are only garbage.
+# new ones. A committed transaction is never touched here: all three paths were replaced, so the
+# backups are garbage, but the record of the replacement is also the only proof that staging is
+# still owed, and finish_committed_txn is the one place that removes it.
 rollback_txn() {
 	[ -d "$TXN" ] || return 0
-	if [ ! -e "$TXN/committed" ]; then
-		if [ -e "$TXN/bak.plugin" ]; then
-			rm -rf "$PLUGIN" && mv "$TXN/bak.plugin" "$PLUGIN" || return 1
-		fi
-		if [ -e "$TXN/bak.done" ]; then
-			cp -p "$TXN/bak.catalog" "$TXN/restore.catalog" && mv -f "$TXN/restore.catalog" "$CATALOG" || return 1
-			cp -p "$TXN/bak.pin" "$TXN/restore.pin" && mv -f "$TXN/restore.pin" "$PIN_FILE" || return 1
-		fi
+	[ ! -e "$TXN/committed" ] || return 0
+	if [ -e "$TXN/bak.plugin" ]; then
+		rm -rf "$PLUGIN" && mv "$TXN/bak.plugin" "$PLUGIN" || return 1
+	fi
+	if [ -e "$TXN/bak.done" ]; then
+		cp -p "$TXN/bak.catalog" "$TXN/restore.catalog" && mv -f "$TXN/restore.catalog" "$CATALOG" || return 1
+		cp -p "$TXN/bak.pin" "$TXN/restore.pin" && mv -f "$TXN/restore.pin" "$PIN_FILE" || return 1
 	fi
 	rm -rf "$TXN"
 }
 
 stage_changes() { git add -A -- "$PLUGIN" "$CATALOG" "$PIN_FILE"; }
 
+# Stage first and delete the record only after staging worked, so a failed stage leaves the
+# committed transaction for the next recover.
+finish_committed_txn() {
+	stage_changes || return 1
+	rm -rf "$TXN"
+}
+
 on_exit() {
 	local rc=$?
 	trap - EXIT
 	if [ -n "$TXN_OWNED" ]; then
-		if ! rollback_txn; then
+		if [ -e "$TXN/committed" ]; then
+			note "the installation is complete but not staged, the transaction is kept at $TXN, run: bash omp-port/sync-upstream.sh recover"
+			[ "$rc" -ne 0 ] || rc=1
+		elif ! rollback_txn; then
 			note "rollback did not finish, the transaction is kept at $TXN, run: bash omp-port/sync-upstream.sh recover"
 			rc=1
 		fi
 	fi
+	exit "$rc"
+}
+
+# Every mode that installs, recovery included, runs under one exclusive lock on a file in the git
+# directory. flock is not on every host, perl is, and the kernel drops the lock when the holder
+# dies, so a kill never leaves a stale lock. The lock is taken by re-running this script under
+# perl, which keeps the descriptor open across the exec, and it is held through replacement,
+# staging, and cleanup. A second invocation fails at once and touches nothing.
+acquire_lock() {
+	[ -z "${PSTACK_PORT_LOCK_HELD:-}" ] || return 0
+	local lock rc=0
+	lock=$(git rev-parse --absolute-git-dir)/pstack-port.lock
+	PSTACK_PORT_LOCK_HELD=1 perl -MFcntl=:flock -e '
+		my ($lock, @cmd) = @ARGV;
+		open(my $fh, ">>", $lock) or die "cannot open $lock: $!\n";
+		flock($fh, LOCK_EX | LOCK_NB) or exit 75;
+		fcntl($fh, F_SETFD, 0) or die "cannot keep the lock open: $!\n";
+		exec @cmd or die "cannot run @cmd: $!\n";' "$lock" bash "$HERE/sync-upstream.sh" "$@" || rc=$?
+	[ "$rc" -ne 75 ] || die "another sync-upstream run holds the installation lock at $lock, wait for it to finish"
 	exit "$rc"
 }
 
@@ -175,9 +212,8 @@ recover_txn() {
 		return 0
 	fi
 	if [ -e "$TXN/committed" ]; then
-		note "a previous run finished replacing the installation, discarding its backups and staging the result"
-		rollback_txn || die "could not discard the finished transaction at $TXN"
-		stage_changes || die "could not stage the finished installation"
+		note "a previous run finished replacing the installation, staging the result and discarding its backups"
+		finish_committed_txn || die "could not stage the finished installation, the transaction is kept at $TXN, fix the cause and run recover again"
 	else
 		note "a previous run was interrupted, restoring the previous installation"
 		rollback_txn || die "could not restore the previous installation from $TXN, fix the cause and run recover again"
@@ -273,7 +309,7 @@ do_build() {
 	: >"$TXN/committed"
 
 	stage_changes || die "the installation is complete but staging it failed, run: bash omp-port/sync-upstream.sh recover"
-	rm -rf "$TXN" || die "the installation is complete but removing $TXN failed"
+	rm -rf "$TXN" || die "the installation is complete but removing $TXN failed, run: bash omp-port/sync-upstream.sh recover"
 	TXN_OWNED=""
 
 	changed=$(git status --porcelain -- "$PLUGIN" | wc -l | tr -d ' ')
@@ -334,6 +370,10 @@ cmd_release() {
 usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$HERE/sync-upstream.sh"; }
 
 main() {
+	case "${1:-}" in
+	check | -h | --help) ;;
+	*) acquire_lock "$@" ;;
+	esac
 	case "${1:-}" in
 	check)
 		local pin target

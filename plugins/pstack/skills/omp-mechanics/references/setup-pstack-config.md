@@ -75,9 +75,14 @@ Edit the effective **user** configuration under the active profile and agent dir
 remembered default path:
 
 1. `omp config path` prints the agent directory in effect for this process, including profile,
-   `PI_CODING_AGENT_DIR`, and XDG relocation. The user file is `config.yml` there.
-2. Edit a project `.omp/config.yml` or an overlay file only when the operator names it.
-3. Read the effective value from every layer that can supply it. `omp config get
+   `PI_CODING_AGENT_DIR`, and XDG relocation.
+2. Select the global file in that directory the way omp does: `config.yml` if it exists, otherwise
+   an existing `config.yaml`. Create `config.yml` only when neither exists. omp reads the first
+   present file and ignores the other, so a new `config.yml` beside a populated `config.yaml`
+   shadows all of its settings, not only the model map. Edit the selected file in place and keep
+   every other record and comment.
+3. Edit a project `.omp/config.yml` or an overlay file only when the operator names it.
+4. Read the effective value from every layer that can supply it. `omp config get
    task.agentModelOverrides --json` shows the persisted settings, but `--config` and
    `PI_CONFIG_FILES` overlays and runtime overrides can outrank them. When a higher layer supplies a
    key, display that value instead of claiming the lower-layer edit won.

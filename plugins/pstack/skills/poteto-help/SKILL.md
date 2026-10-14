@@ -51,7 +51,7 @@ Whether `/poteto-mode` stays on depends on how the user starts it:
 - `/poteto-mode on` keeps it on, `/poteto-mode off` turns it off, and `/poteto-mode status` shows the state.
 - `Alt+Shift+T` toggles the pin. Listing visibility does not pin the mode.
 
-See `omp://skills.md` for how skills load. Mid-chat, "new task" makes the mode match a fresh playbook. `/poteto-mode` already uses `poteto-agent` for the subagents its playbook steps spawn. To get the same style from a subagent of your own, pick `poteto-agent` through the `skill://pstack-omp` role resolution.
+See `omp://skills.md` for how skills load. Mid-chat, "new task" makes the mode match a fresh playbook. `/poteto-mode` sends the subagents its playbook steps spawn through the six capability routes `pstack_fast`, `pstack_judgment`, and `pstack_panel_1` to `pstack_panel_4`, as `skill://pstack-omp` maps them. `/skill:setup-pstack` sets the model for each route, and an unconfigured route inherits the parent model. `poteto-agent` is an optional compatibility agent. Use it only when the user asks for it by name. To get the same style from a subagent of your own, start from the same routes.
 
 ## Pick a skill
 
@@ -86,7 +86,7 @@ The default answer is `/poteto-mode`, which runs most of the others when its ste
 | Turn their own working habits into a personal mode skill | [`/skill:automate-me`](../automate-me/SKILL.md) |
 | Turn what a finished task taught into skill edits | [`/skill:reflect`](../reflect/SKILL.md) |
 | Stop agents from repeating the same mistakes in this repo | [`/skill:correct`](../correct/SKILL.md) |
-| Build a page whose buttons wake a Grok Bot over a webhook | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
+| Build a page whose buttons wake a Grok Bot over a webhook. Unsupported on omp: the skill stops before it creates a routine, stores a secret, or wakes a bot | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
 | Find their way around pstack | `/skill:poteto-help` |
 
 If a skill directory next to this one is missing from the table, read its frontmatter and route by its description. The `principle-*` directories are covered under principles below.

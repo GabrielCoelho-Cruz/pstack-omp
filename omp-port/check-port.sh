@@ -452,16 +452,14 @@ function checkLink(file, ln, target0) {
   checkPath(file, ln, 'link', path.dirname(file), rel, rootOf(file));
 }
 
+// A pointer such as references/x.md resolves in the directory of the skill that owns the file, the
+// way the runtime resolves it for a loaded skill. A file outside every skill has no such
+// directory. A pointer into another skill has to be a skill://<name>/... URI.
 function checkPointer(file, ln, rel) {
   nrefs++;
-  const dir = path.dirname(file);
   const own = owningSkill(file);
-  const candidates = [dir];
-  if (own) candidates.push(own);
-  else for (const d of skills.values()) candidates.push(d);
-  if (skills.has('poteto-mode')) candidates.push(skills.get('poteto-mode'));
-  for (const base of candidates) if (stat(path.join(base, rel))) return;
-  problems.push(`${file}:${ln}: dangling pointer ${rel}`);
+  if (!own) { problems.push(`${file}:${ln}: pointer ${rel} outside a skill, use a skill://<name>/${rel} URI`); return; }
+  if (!stat(path.join(own, rel))) problems.push(`${file}:${ln}: dangling pointer ${rel} in skill ${path.basename(own)}, a pointer into another skill needs a skill:// URI`);
 }
 
 const files = [];
@@ -505,14 +503,19 @@ if ! command -v node >/dev/null 2>&1; then
 else
 	node -e "$(linkcheck_js)" "$PSTACK" "$FANOUT" >"$TMP/links.out" 2>"$TMP/links.err"
 	st=$?
-	if [ "$st" -ge 2 ]; then
-		p_add "inspection failure: link check could not read the tree: $(tr '\n' ' ' <"$TMP/links.err")"
-		finish "internal links" ""
-	else
-		while IFS= read -r l; do case "$l" in 'V '*) p_add "${l#V }" ;; esac; done <"$TMP/links.out"
-		summary=$(awk '$1 == "S" { print $2 " markdown files, " $3 " references" }' "$TMP/links.out")
-		finish "internal links" "$summary, every local target resolves"
+	nviol=$(awk '$1 == "V" { n++ } END { print n + 0 }' "$TMP/links.out")
+	nsum=$(awk '$1 == "S" { n++ } END { print n + 0 }' "$TMP/links.out")
+	summary=$(awk '$1 == "S" && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && NF == 3 { print $2 " markdown files, " $3 " references" }' "$TMP/links.out")
+	if [ "$st" -ge 2 ] || { [ "$st" -ne 0 ] && [ "$nviol" -eq 0 ]; }; then
+		p_add "inspection failure: link check exited $st with no reference violation: $(tr '\n' ' ' <"$TMP/links.err")"
+	elif [ "$st" -eq 0 ] && [ "$nviol" -ne 0 ]; then
+		p_add "inspection failure: link check exited 0 but reported $nviol violations"
 	fi
+	while IFS= read -r l; do case "$l" in 'V '*) p_add "${l#V }" ;; esac; done <"$TMP/links.out"
+	if [ "$st" -eq 0 ] && { [ "$nsum" -ne 1 ] || [ -z "$summary" ]; }; then
+		p_add "inspection failure: link check exited 0 without exactly one valid result summary: $(tr '\n' ' ' <"$TMP/links.err")"
+	fi
+	finish "internal links" "$summary, every local target resolves"
 fi
 
 # ---- router parity --------------------------------------------------------------------------

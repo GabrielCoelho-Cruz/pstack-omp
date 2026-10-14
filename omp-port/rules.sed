@@ -229,3 +229,8 @@ s#^paths: \[#globs: [#
 
 s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
 s#(^|[^[:alnum:]_/.:~$-])/(architect|arena|automate-me|benchmark-checklist|blast-radius|bro|correct|create-verification-skill|figure-it-out|how|in-your-own-words|interrogate|ketchup|maintain-verification-skill|make-bot-ui|no-comments|poteto-help|recall|reflect|setup-pstack|show-me-your-work|swarm|tdd|teach|technical-writing|typescript-best-practices|unslop|why)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
+
+## Dynamic skill names the shipped list cannot name. A personal mode is authored as `<handle>-mode` and a generated verification skill as `verify-<app>`.
+## omp registers both as `/skill:<name>`, and the personal-mode procedure registers no extension command of its own. The boundaries match the rule above.
+s#(^|[^[:alnum:]_/.:~$-])/(<handle>-mode|verify-<app>)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g
+s#(^|[^[:alnum:]_/.:~$-])/(<handle>-mode|verify-<app>)([^[:alnum:]_/-]|$)#\1/skill:\2\3#g

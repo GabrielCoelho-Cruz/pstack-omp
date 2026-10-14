@@ -107,16 +107,27 @@ owned source is present does it touch the live files:
 1. Back up the live catalog and pin, and mark the backups complete.
 2. Move the live plugin directory aside, move the prepared one in, then replace the catalog and the
    pin with single renames.
-3. Mark the transaction committed, stage the result in git, and delete the backups.
+3. Mark the transaction committed, stage the result in git, and only then delete the transaction.
+
+Every mode except `check` first takes an exclusive lock on `<git-dir>/pstack-port.lock`, before it
+recovers anything or reads the pin or the version, and holds it until the run exits. The script takes
+the lock with `perl`'s `flock` and re-runs itself under it, so a kill drops the lock and leaves no
+stale file to clean. A second run, `recover` included, fails at once and does not touch the first
+run's transaction.
 
 A failed build, a missing owned source, a failed metadata write, or a failed rename leaves the old
 plugin, catalog, pin, and index as they were, and the script cleans its scratch state. It traps
 `EXIT`, `INT`, `TERM`, and `HUP` and rolls back from them. Three renames are not one atomic
 operation, so a kill the script cannot trap leaves its backups and a marker in the git directory.
 The next invocation of any installing mode restores the previous complete installation before it
-looks at the tree, and a transaction that had already committed is finished and staged instead.
-`bash omp-port/sync-upstream.sh recover` does the same on demand. Nothing is staged in git before the
-filesystem transaction commits.
+looks at the tree. `bash omp-port/sync-upstream.sh recover` does the same on demand. Nothing is
+staged in git before the filesystem transaction commits.
+
+If staging fails after the commit, for example on a held `.git/index.lock`, the installation is
+complete but unstaged. The committed transaction is kept, never rolled back and never deleted.
+Recovery stages first and removes the transaction only after staging succeeds. A repeated staging
+failure keeps it again. Recovery finishes the same release without a build or a second version
+increment.
 
 Everything under `plugins/pstack` is either generated, owned, or the manifest, because the whole
 directory is replaced. A stray file anywhere else stops the install instead of being deleted.
@@ -192,7 +203,12 @@ cannot build is a failure everywhere, never a skip, so a PASS always includes `r
 It scans both plugins, the extension sources, the root `README.md`, and this file. It also checks
 the contracts the package makes:
 
-- every shipped Markdown link resolves, `skill://` references included, and none escapes its plugin;
+- every shipped Markdown link resolves, `skill://` references included, and none escapes its plugin.
+  An inline pointer such as `references/x.md` resolves only inside the skill that owns the file, as
+  the runtime resolves it, so a pointer into another skill, or from a file outside every skill, has
+  to be an explicit `skill://<name>/...` URI. The checker's Node process must exit 0 with exactly
+  one result summary, or exit 1 with the violations that explain it. Any other exit, or a missing or
+  malformed summary, fails the gate;
 - `task.agentModelOverrides` is named in both `setup-pstack` and `poteto-mode`, each checked alone;
 - the seven routed skills point at `skill://pstack-omp` and the setup reference;
 - the six routing agents in `agents-extra/` and `agents/` are exactly the settled set, identical,

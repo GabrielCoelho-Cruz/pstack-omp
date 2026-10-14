@@ -48,7 +48,13 @@ display(results);
 
 `wait(hs, ...)` returns values in input order. With `raiseErrors: false` a failed or cancelled handle is returned in its own slot as the error object, so inspect every slot and account for each partition or racer. Never index into a handle as if it were its result.
 
-In Python the same pattern is `hs = [await agent(b, agent="scout") for b in briefs]` then `results = await wait(hs, raise_errors=False)`.
+In Python the same pattern uses the synchronous helpers. `agent()` returns an awaitable handle, and awaiting it consumes its result, so do not await it inside the comprehension. `wait()` is synchronous and returns a list, so do not await it either:
+
+```python
+hs = [agent(b, agent="scout") for b in briefs]
+results = wait(hs, raise_errors=False)
+display(results)
+```
 
 For an open stream of items, use `workpool()`:
 
@@ -66,7 +72,6 @@ Decide per slice or per racer, not with a blanket rule.
 - **Partition.** A missing or failed slice is incomplete work. Re-dispatch exactly that slice, or report it as not covered.
 - **Race.** Apply the declared rule to the results that came back, and state how many arms completed.
 - **Gauntlet.** Count only completed checks toward a majority, and say how many checks were lost.
-One run on one configuration, kept for context only and not a failure rate, a speedup promise, or a width recommendation. On one machine a 100-item batch of `sonic` agents with a structured-output schema completed 92 of 100 in 343 s of wall time. A same-task rerun at width 20 completed 16 of 20, at width 8 `sonic` and `task` completed 6 of 8 each, and `scout` completed 8 of 8. The cause was not isolated. The failed items returned an improvised envelope rather than the requested schema. Probe your own configuration before relying on any number.
 Schema-bound subagents can return the wrong shape. When a result fails its contract, re-dispatch that item or relax the output contract rather than guessing at the intended fields. Put schema-bound or judgment work on a stronger model through `task.agentModelOverrides` and a named agent.
 
 ## Historical observation

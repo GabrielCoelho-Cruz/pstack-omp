@@ -75,7 +75,7 @@ runs two independent contexts, though without a promise of different models. Ret
 extension routing can still change the final model, so check the resolved model each result reports.
 Setup does not change your chat model, and new task launches use the values without a restart.
 
-`references/setup-pstack-config.md` in `omp-mechanics` is the authoritative format. Vibe workers
+`skill://omp-mechanics/references/setup-pstack-config.md` is the authoritative format. Vibe workers
 expose only `fast` and `good`, so per-role task routing is unavailable there.
 
 ## What differs from upstream
@@ -92,7 +92,7 @@ Every Cursor mechanic is substituted for its omp equivalent.
   routine or webhook service. For unattended runs, connect launchd on macOS or a systemd user timer
   or cron on Linux to an explicit CLI or authenticated RPC entry point.
 - **Transcripts.** Cursor transcripts become the omp session store, resolved through
-  `references/session-store-on-omp.md`.
+  `skill://omp-mechanics/references/session-store-on-omp.md`.
 - **Models.** No skill names a vendor model. Name a capability, route it with
   `task.agentModelOverrides`, and pick the chat model with `/model`.
 

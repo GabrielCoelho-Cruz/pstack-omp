@@ -67,9 +67,9 @@ Use `skill://poteto-mode/playbooks/authoring-a-skill.md` to author the skill. Pl
 
 - Path: preserve an existing mode skill's location. For a new mode, use `<project root>/<handle>-mode/SKILL.md` in the nearest project `.omp/skills`, or `<user root>/<handle>-mode/SKILL.md` if the user prefers a personal skill. Never nest it deeper than one level.
 - Handle: the user's first name or chosen identifier.
-- Frontmatter `description`: trigger on their name + `/<handle>-mode` + "work in their style", not on generic keywords like "write code" or "review PR".
+- Frontmatter `description`: trigger on their name + `/skill:<handle>-mode` + "work in their style", not on generic keywords like "write code" or "review PR".
 - Frontmatter formatting: follow the `authoring-a-skill` playbook's YAML rules. Keep `description` as one YAML scalar. Quote it or use `description: >-` with indented continuation lines when punctuation or wrapping requires it.
-- Frontmatter `disable-model-invocation: true` by default. Opt out only if the user explicitly wants their mode to apply on every turn.
+- Frontmatter `disable-model-invocation: true` by default. The flag only controls whether the skill is hidden from or listed in the model's skill list. It never activates a mode. The user starts the mode explicitly with `/skill:<handle>-mode`, and the generated skill has no persistent pin from frontmatter. Removing the flag lists the skill and does not apply it every turn. Leave the flag set unless the user wants the model to see the skill in its list.
 
 ### 5. Iterate on prose
 
