@@ -479,15 +479,29 @@ for (const file of files) {
       return;
     }
     for (const m of line.matchAll(/skill:\/\/([^\s)\]`'",;|]*)/g)) checkSkillRef(file, ln, m[1]);
-    for (const m of line.matchAll(/(^|[^\w./<>*{}$~-])((?:playbooks|references)\/[A-Za-z0-9_.-]+\.md)\b/g)) checkPointer(file, ln, m[2]);
-    if (fence) return;
     const prose = line.replace(/`[^`]*`/g, (c) => ' '.repeat(c.length));
-    for (const m of prose.matchAll(/!?\[[^\]]*\]\(\s*(<[^>]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g)) {
+    const inlineRe = /!?\[[^\]]*\]\(\s*(<[^>]*>|[^)\s]*)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/dg;
+    const defRe = /^\s{0,3}\[[^\]]+\]:\s*(<[^>]+>|\S+)/d;
+    const attrRe = /\b(?:src|href)="([^"]+)"/dg;
+    // A link destination is the link checker's, resolved from the containing document. Outside a
+    // fence it is blanked from the line the pointer scan reads, so only real inline pointers remain.
+    let ptr = line;
+    if (!fence) {
+      const spans = [];
+      for (const m of prose.matchAll(inlineRe)) spans.push(m.indices[1]);
+      const dm = defRe.exec(prose);
+      if (dm) spans.push(dm.indices[1]);
+      for (const m of prose.matchAll(attrRe)) spans.push(m.indices[1]);
+      for (const [a, b] of spans) ptr = ptr.slice(0, a) + ' '.repeat(b - a) + ptr.slice(b);
+    }
+    for (const m of ptr.matchAll(/(^|[^\w./<>*{}$~-])((?:playbooks|references)\/[A-Za-z0-9_.-]+\.md)\b/g)) checkPointer(file, ln, m[2]);
+    if (fence) return;
+    for (const m of prose.matchAll(inlineRe)) {
       if (!/^skill:\/\//i.test(m[1])) checkLink(file, ln, m[1]);
     }
-    const def = /^\s{0,3}\[[^\]]+\]:\s*(<[^>]+>|\S+)/.exec(prose);
+    const def = defRe.exec(prose);
     if (def && !/^skill:\/\//i.test(def[1])) checkLink(file, ln, def[1]);
-    for (const m of prose.matchAll(/\b(?:src|href)="([^"]+)"/g)) checkLink(file, ln, m[1]);
+    for (const m of prose.matchAll(attrRe)) checkLink(file, ln, m[1]);
   });
 }
 for (const p of problems) console.log('V ' + p);
